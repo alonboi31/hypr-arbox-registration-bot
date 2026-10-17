@@ -154,11 +154,26 @@ async def tick(client, tasks: set):
         t.add_done_callback(tasks.discard)
 
 
+_wake: asyncio.Event | None = None
+
+
+def poke():
+    """Rules changed: run a schedule check now instead of waiting for the hourly one."""
+    if _wake:
+        _wake.set()
+
+
 async def run_forever(client):
+    global _wake
+    _wake = asyncio.Event()
     tasks: set = set()
     while True:
         try:
             await tick(client, tasks)
         except Exception:
             log.exception("tick failed")
-        await asyncio.sleep(TICK_SECONDS)
+        try:
+            await asyncio.wait_for(_wake.wait(), TICK_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+        _wake.clear()

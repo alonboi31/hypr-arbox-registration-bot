@@ -63,12 +63,14 @@ def rules():
 @app.post("/api/rules")
 def add_rule(r: RuleIn):
     db.add_rule(r.weekday, r.time, r.name_contains)
+    engine.poke()
     return {"ok": True}
 
 
 @app.patch("/api/rules/{rule_id}")
 def toggle_rule(rule_id: int, body: EnabledIn):
     db.set_rule_enabled(rule_id, body.enabled)
+    engine.poke()
     return {"ok": True}
 
 

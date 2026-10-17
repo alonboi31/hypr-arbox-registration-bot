@@ -296,3 +296,19 @@ async def test_preflight_refreshes_schedule_before_booking(client, fake, fast, m
     first_post = next(i for i, p in enumerate(paths) if p.endswith("/scheduleUser/insert"))
     # tick fetch(es) + one pre-flight refresh, all before the first booking POST
     assert len(sched) >= 2 and sched[-1] < first_post
+
+
+async def test_poke_triggers_immediate_tick(client, monkeypatch):
+    calls = []
+
+    async def counting_tick(c, tasks):
+        calls.append(1)
+
+    monkeypatch.setattr(engine, "tick", counting_tick)  # TICK_SECONDS stays at 1 hour
+    t = asyncio.create_task(engine.run_forever(client))
+    await asyncio.sleep(0.05)
+    assert len(calls) == 1
+    engine.poke()  # a rule changed
+    await asyncio.sleep(0.05)
+    t.cancel()
+    assert len(calls) == 2
