@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from app import arbox_client
-from app.arbox_client import ArboxClient, BookingError, NotOpenYet
+from app.arbox_client import ArboxClient, BookingError, LoginError, NotOpenYet
 from tests.fake_arbox import MEMBERSHIP_PLAN, TZ, FakeArbox, raw_class
 
 DAY = datetime(2026, 10, 21, 18, 0, tzinfo=TZ)
@@ -32,8 +32,25 @@ async def test_login_sets_both_token_headers(client, fake):
 
 async def test_bad_credentials_raise(fake, monkeypatch):
     monkeypatch.setattr(arbox_client, "settings", replace(arbox_client.settings, arbox_password="wrong"))
-    with pytest.raises(Exception):
+    with pytest.raises(LoginError, match="HTTP 400"):
         await ArboxClient(transport=fake.transport).login()
+
+
+async def test_login_sends_the_apps_anonymous_token_headers(client, fake):
+    seen = []
+    orig = fake._handle
+    fake.transport = __import__("httpx").MockTransport(lambda r: (seen.append(dict(r.headers)), orig(r))[1])
+    c = ArboxClient(transport=fake.transport)
+    await c.login()
+    assert seen[0]["accesstoken"] == "[object Object]" and seen[0]["refreshtoken"] == "[object Object]"
+    assert seen[0]["whitelabel"] == "HYPR-training"
+
+
+async def test_login_error_includes_server_response(fake, monkeypatch):
+    import httpx
+    c = ArboxClient(transport=httpx.MockTransport(lambda r: httpx.Response(512, text="nope")))
+    with pytest.raises(LoginError, match="512.*nope"):
+        await c.login()
 
 
 async def test_schedule_is_queried_one_day_at_a_time_and_parsed(client, fake):

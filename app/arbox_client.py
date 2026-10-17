@@ -33,6 +33,15 @@ class GymClass:
     registration_hours: int | None = None  # hours before start that booking opens
 
 
+class LoginError(Exception):
+    pass
+
+
+# Before login the app sends these two headers with this literal value (a JS quirk in
+# the app: it stringifies an empty object). Arbox accepted it in the capture, so mirror it.
+ANON_TOKENS = {"accesstoken": "[object Object]", "refreshtoken": "[object Object]"}
+
+
 class BookingError(Exception):
     """Booking failed for a reason retrying will not fix."""
 
@@ -69,6 +78,8 @@ class ArboxClient:
             base_url=settings.arbox_base_url,
             timeout=10,
             headers={
+                "accept": "application/json, text/plain, */*",
+                "accept-language": "en-GB,en-US;q=0.9,en;q=0.8",
                 "whitelabel": settings.whitelabel,
                 "version": "15",
                 "referername": "app",
@@ -80,9 +91,12 @@ class ArboxClient:
 
     async def login(self):
         r = await self._http.post(
-            "/user/login", json={"email": settings.arbox_email, "password": settings.arbox_password}
+            "/user/login",
+            json={"email": settings.arbox_email, "password": settings.arbox_password},
+            headers=ANON_TOKENS,
         )
-        r.raise_for_status()
+        if r.status_code != 200:
+            raise LoginError(f"login failed: HTTP {r.status_code}: {r.text[:300]!r}")
         d = r.json()["data"]
         self._tokens = {"accesstoken": d["token"], "refreshtoken": d["refreshToken"]}
 

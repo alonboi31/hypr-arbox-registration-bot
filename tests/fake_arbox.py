@@ -68,6 +68,9 @@ class FakeArbox:
 
         if short == "/user/login":
             self.logins += 1
+            # the real server rejected logins lacking the app's anonymous token headers
+            if req.headers.get("accesstoken") != "[object Object]" or req.headers.get("refreshtoken") != "[object Object]":
+                return httpx.Response(512, text="missing token headers")
             if body != {"email": "me@example.com", "password": "secret"}:
                 return httpx.Response(400, json={"error": "bad credentials"})
             return httpx.Response(200, json={"data": {"token": TOKEN, "refreshToken": REFRESH}})

@@ -35,4 +35,8 @@ async def main(client=None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    try:
+        raise SystemExit(asyncio.run(main()))
+    except Exception as e:  # show a readable reason instead of a traceback
+        print(f"FAILED: {type(e).__name__}: {e}")
+        raise SystemExit(1)
