@@ -26,3 +26,11 @@ API notes (from an iOS traffic capture): `POST /user/login` -> `accesstoken`/`re
 - `app/arbox_client.py` the only file that talks to Arbox
 
 Note: automated booking may violate Arbox/studio terms; use your own account, low request volume.
+
+## Tests
+    .venv/bin/pip install -r requirements-dev.txt
+    .venv/bin/pytest
+
+51 tests: API client against a fake Arbox server shaped like the captured traffic
+(`tests/fake_arbox.py`), engine end-to-end (book, retry, waitlist, failure, no double-booking),
+SQLite, and the web API/GUI. Nothing in the suite contacts the real Arbox.

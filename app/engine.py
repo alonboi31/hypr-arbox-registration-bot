@@ -52,7 +52,7 @@ async def waitlist(client, c: GymClass):
         await notify(f"Class full, waitlist failed: {label(c)} ({e})")
 
 
-async def book_when_open(client, c: GymClass):
+async def _book_when_open(client, c: GymClass):
     delay = (opening_time(c.start, c.registration_hours) - datetime.now(TZ)).total_seconds()
     if delay > 0:
         await asyncio.sleep(delay)
@@ -80,6 +80,16 @@ async def book_when_open(client, c: GymClass):
             await asyncio.sleep(RETRY_EVERY)
     db.set_attempt(c.id, "failed", last)
     await notify(f"FAILED to book {label(c)}: {last}")
+
+
+async def book_when_open(client, c: GymClass):
+    """Never let a booking task die silently: record and report any crash."""
+    try:
+        await _book_when_open(client, c)
+    except Exception as e:
+        log.exception("booking task crashed")
+        db.set_attempt(c.id, "failed", f"{type(e).__name__}: {e}")
+        await notify(f"FAILED to book {label(c)}: {type(e).__name__}: {e}")
 
 
 async def tick(client, tasks: set):

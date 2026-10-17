@@ -63,8 +63,9 @@ def _parse_class(c: dict) -> GymClass:
 
 
 class ArboxClient:
-    def __init__(self):
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None):
         self._http = httpx.AsyncClient(
+            transport=transport,
             base_url=settings.arbox_base_url,
             timeout=10,
             headers={
