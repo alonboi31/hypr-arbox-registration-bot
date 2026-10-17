@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbox Bot</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --mut:#6b6b6b; --line:#e3e3e3; --acc:#1f6feb; --ok:#1a7f37; --bad:#cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --line:#333; --acc:#58a6ff; --ok:#3fb950; --bad:#f85149; } }
+  body { font:15px system-ui,sans-serif; background:var(--bg); color:var(--fg); margin:0 auto; max-width:760px; padding:16px; }
+  h2 { margin:28px 0 8px; font-size:16px; }
+  table { width:100%; border-collapse:collapse; }
+  td,th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:500; font-size:13px; }
+  button,select,input { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button { cursor:pointer; } button.p { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); }
+  .booked { color:var(--ok); } .failed { color:var(--bad); } .mut { color:var(--mut); }
+  .scroll { overflow-x:auto; }
+</style>
+</head>
+<body>
+<h1 style="font-size:20px">Arbox auto-register</h1>
+
+<h2>Auto-book rules</h2>
+<div class="row">
+  <select id="wd"></select>
+  <input id="tm" type="time" value="18:00">
+  <input id="nm" placeholder="name contains (optional)">
+  <button class="p" onclick="addRule()">Add rule</button>
+</div>
+<div class="scroll"><table id="rules"></table></div>
+
+<h2>Upcoming classes <span class="mut">(tap to toggle auto-book for that weekly slot)</span></h2>
+<div class="scroll"><table id="sched"></table></div>
+
+<h2>Recent attempts</h2>
+<div class="scroll"><table id="att"></table></div>
+
+<script>
+const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const $ = id => document.getElementById(id);
+$("wd").innerHTML = DAYS.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = (p, o={}) => fetch(p, {headers:{"Content-Type":"application/json"}, ...o}).then(r => r.json());
+
+async function addRule(wd = +$("wd").value, time = $("tm").value, name = $("nm").value) {
+  await api("/api/rules", {method:"POST", body:JSON.stringify({weekday:wd, time, name_contains:name})});
+  load();
+}
+async function toggle(id, on) { await api("/api/rules/"+id, {method:"PATCH", body:JSON.stringify({enabled:on})}); load(); }
+async function del(id) { await api("/api/rules/"+id, {method:"DELETE"}); load(); }
+
+async function load() {
+  const [rules, sched, att] = await Promise.all([api("/api/rules"), api("/api/schedule"), api("/api/attempts")]);
+  $("rules").innerHTML = "<tr><th>Day</th><th>Time</th><th>Name</th><th></th></tr>" + (rules.map(r => `
+    <tr><td>${DAYS[r.weekday]}</td><td>${esc(r.time)}</td><td>${esc(r.name_contains) || '<span class="mut">any</span>'}</td>
+    <td><button onclick="toggle(${r.id},${!r.enabled})">${r.enabled ? "On" : "Off"}</button>
+        <button onclick="del(${r.id})">Delete</button></td></tr>`).join("") || '<tr><td class="mut">No rules yet</td></tr>');
+  $("sched").innerHTML = "<tr><th>Class</th><th>When</th><th>Opens</th><th></th></tr>" + sched.map(c => {
+    const f = s => new Date(s).toLocaleString([], {weekday:"short", day:"numeric", month:"numeric", hour:"2-digit", minute:"2-digit"});
+    const act = c.matched ? '<span class="tag booked">auto</span>'
+      : `<button onclick='addRule(${c.weekday},${JSON.stringify(c.time)},${JSON.stringify(c.name)})'>Auto-book</button>`;
+    return `<tr><td>${esc(c.name)} <span class="mut">${esc(c.coach)}</span></td><td>${f(c.start)}</td><td class="mut">${f(c.opens)}</td>
+      <td>${c.registered ? '<span class="tag booked">registered</span>' : act}</td></tr>`;
+  }).join("");
+  $("att").innerHTML = "<tr><th>Class</th><th>Status</th><th>Detail</th></tr>" + (att.map(a =>
+    `<tr><td>${esc(a.class_label)}</td><td class="${a.status}">${esc(a.status)}</td><td class="mut">${esc(a.detail)}</td></tr>`).join("")
+    || '<tr><td class="mut">Nothing yet</td></tr>');
+}
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>

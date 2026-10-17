@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - ./data:/srv/data
+    # Bind to localhost; put it behind HTTPS (Caddy/Tailscale) before exposing.
+    ports:
+      - "127.0.0.1:8000:8000"
