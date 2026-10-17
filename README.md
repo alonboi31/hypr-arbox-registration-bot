@@ -19,7 +19,7 @@ API notes (from an iOS traffic capture): `POST /user/login` -> `accesstoken`/`re
 
 ## Layout
 - `app/opening.py` opening time = start - Arbox's per-class registration hours (tested)
-- `app/engine.py` 30s tick; wakes before opening, retries ~2 min, waitlist fallback, ntfy notifications
+- `app/engine.py` hourly tick; wakes before opening, retries ~2 min, waitlist fallback, ntfy notifications
 - `app/main.py` + `app/static/index.html` GUI/API for rules
 - `app/arbox_client.py` the only file that talks to Arbox
 

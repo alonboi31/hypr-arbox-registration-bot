@@ -13,10 +13,20 @@ from .opening import opening_time
 log = logging.getLogger("engine")
 TZ = ZoneInfo(settings.timezone)
 
-TICK_SECONDS = 30
-WAKE_AHEAD = timedelta(seconds=90)   # start waiting this long before opening
+TICK_SECONDS = 3600  # one schedule request per hour
+WAKE_AHEAD = timedelta(seconds=90)   # margin before opening (on top of one tick)
+PREFLIGHT = timedelta(seconds=90)    # refresh the class + warm the connection this long before opening
+LEAD = timedelta(seconds=0.15)       # first attempt this much before opening (~half a round trip)
 RETRY_WINDOW = timedelta(seconds=120)  # keep retrying this long after opening
-RETRY_EVERY = 0.4
+RETRY_EVERY = 0.25                   # fast phase: first FAST_PHASE seconds after the first attempt
+FAST_PHASE = 3.0
+
+
+def retry_delay(elapsed: float) -> float:
+    """Fast at the contested moment, then ease off so we never hammer Arbox."""
+    if elapsed < FAST_PHASE:
+        return RETRY_EVERY
+    return 1.0 if elapsed < 60 else 2.0
 
 
 def matches(rule: dict, c: GymClass) -> bool:
@@ -52,11 +62,34 @@ async def waitlist(client, c: GymClass):
         await notify(f"Class full, waitlist failed: {label(c)} ({e})")
 
 
-async def _book_when_open(client, c: GymClass):
-    delay = (opening_time(c.start, c.registration_hours) - datetime.now(TZ)).total_seconds()
+async def _sleep_until(t: datetime):
+    delay = (t - datetime.now(TZ)).total_seconds()
     if delay > 0:
         await asyncio.sleep(delay)
-    deadline = datetime.now(TZ) + RETRY_WINDOW
+
+
+async def _book_when_open(client, c: GymClass):
+    opens = opening_time(c.start, c.registration_hours)
+    await _sleep_until(opens - PREFLIGHT)
+
+    # Pre-flight: one fresh look at the class (also logs in and opens the HTTP connection),
+    # plus the membership id, so nothing but the booking POST is left for the critical moment.
+    fresh = await client.get_class(c.id, c.start.date())
+    if fresh is None:
+        db.set_attempt(c.id, "failed", "class disappeared from schedule")
+        await notify(f"FAILED to book {label(c)}: class disappeared from schedule")
+        return
+    if fresh.registered or fresh.in_standby:
+        db.set_attempt(c.id, "booked" if fresh.registered else "waitlisted")
+        return
+    c = fresh
+    opens = opening_time(c.start, c.registration_hours)  # trust Arbox's latest value
+    if not settings.dry_run:
+        await client.membership_id()
+
+    await _sleep_until(opens - LEAD)
+    started = datetime.now(TZ)
+    deadline = started + RETRY_WINDOW
     last = ""
     while datetime.now(TZ) < deadline:
         try:
@@ -79,9 +112,9 @@ async def _book_when_open(client, c: GymClass):
                 db.set_attempt(c.id, "failed", str(e))
                 await notify(f"FAILED to book {label(c)}: {e}")
             return
-        except Exception as e:  # NotOpenYet, network blips -> retry
+        except Exception as e:  # NotOpenYet, network blips -> retry, backing off
             last = str(e)
-            await asyncio.sleep(RETRY_EVERY)
+            await asyncio.sleep(retry_delay((datetime.now(TZ) - started).total_seconds()))
     db.set_attempt(c.id, "failed", last)
     await notify(f"FAILED to book {label(c)}: {last}")
 
@@ -111,7 +144,8 @@ async def tick(client, tasks: set):
             continue
         if not any(matches(r, c) for r in rules):
             continue
-        if opening_time(c.start, c.registration_hours) - now > WAKE_AHEAD:
+        # claim anything opening before the next tick would see it; the task sleeps until then
+        if opening_time(c.start, c.registration_hours) - now > timedelta(seconds=TICK_SECONDS) + WAKE_AHEAD:
             continue
         if not db.claim_attempt(c.id, label(c)):
             continue

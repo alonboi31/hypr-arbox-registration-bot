@@ -96,7 +96,7 @@ async def test_second_tick_does_not_double_book(client, fake, fast, monkeypatch)
 
     assert await run_tick(client) == 1
     assert await run_tick(client) == 0  # already registered / claimed
-    assert len(fake.posts("/scheduleUser/insert")) == 1
+    assert fake.booked == [12]  # booked exactly once (early 'not open yet' attempts don't count)
 
 
 async def test_non_matching_classes_are_ignored(client, fake, fast, monkeypatch):
@@ -128,7 +128,7 @@ async def test_class_far_from_opening_is_not_claimed_yet(client, fake, fast, mon
     start = future_start()
     fake.add(raw_class(40, start))
     rule_for(start)
-    opens_in(monkeypatch, fake, 3600)  # an hour away, beyond WAKE_AHEAD
+    opens_in(monkeypatch, fake, 3 * 3600)  # hours away, beyond the next tick
     assert await run_tick(client) == 0
     assert db.get_attempt("40") is None  # untouched, will be picked up on a later tick
 
@@ -277,3 +277,22 @@ async def test_dry_run_rehearses_without_booking_then_goes_live(fake, fast, monk
     monkeypatch.setattr(engine, "settings", replace(engine.settings, dry_run=False))
     await run_tick(client)  # live now: the rehearsed class is booked for real
     assert fake.booked == [90] and status_of(90) == "booked"
+
+
+def test_retry_delay_backs_off():
+    assert engine.retry_delay(0) == engine.RETRY_EVERY
+    assert engine.retry_delay(10) == 1.0
+    assert engine.retry_delay(90) == 2.0
+
+
+async def test_preflight_refreshes_schedule_before_booking(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(13, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.2)
+    await run_tick(client)
+    paths = [p for _, p, _ in fake.calls]
+    sched = [i for i, p in enumerate(paths) if p.endswith("betweenDates")]
+    first_post = next(i for i, p in enumerate(paths) if p.endswith("/scheduleUser/insert"))
+    # tick fetch(es) + one pre-flight refresh, all before the first booking POST
+    assert len(sched) >= 2 and sched[-1] < first_post
