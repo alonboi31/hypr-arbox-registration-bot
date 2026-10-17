@@ -256,3 +256,24 @@ async def test_notify_skips_network_without_topic(monkeypatch):
     real = httpx.AsyncClient
     monkeypatch.setattr(engine.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     await engine.notify("x")
+
+
+async def test_dry_run_rehearses_without_booking_then_goes_live(fake, fast, monkeypatch):
+    from app import arbox_client
+    start = future_start()
+    fake.add(raw_class(90, start, booked=3))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.1)
+    monkeypatch.setattr(arbox_client, "settings", replace(arbox_client.settings, dry_run=True))
+    monkeypatch.setattr(engine, "settings", replace(engine.settings, dry_run=True))
+    client = ArboxClient(transport=fake.transport)
+
+    await run_tick(client)
+    assert status_of(90) == "dry-run" and not fake.booked
+    assert any("DRY RUN" in n for n in fast) and not any(n.startswith("Booked") for n in fast)
+    assert await run_tick(client) == 0  # rehearsal is not repeated every tick
+
+    monkeypatch.setattr(arbox_client, "settings", replace(arbox_client.settings, dry_run=False))
+    monkeypatch.setattr(engine, "settings", replace(engine.settings, dry_run=False))
+    await run_tick(client)  # live now: the rehearsed class is booked for real
+    assert fake.booked == [90] and status_of(90) == "booked"

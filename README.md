@@ -11,9 +11,7 @@ classes, 72h for Sunday and most Monday classes).
 
 ## Real use
 1. `cp .env.example .env`, fill in `ARBOX_EMAIL`, `ARBOX_PASSWORD`, `UI_PASSWORD`. Keep `DRY_RUN=1` first.
-2. `docker compose up -d --build` on a cloud VM (enable NTP; TZ is Asia/Jerusalem).
-3. Reach the GUI over HTTPS (Caddy) or Tailscale - never plain HTTP on the internet.
-4. Watch the logs through one opening; when it logs the right "DRY_RUN: would book", set `DRY_RUN=0`.
+2. Deploy to a cloud VM: follow **DEPLOY.md** (step by step, with a safe dry-run rehearsal).
 
 API notes (from an iOS traffic capture): `POST /user/login` -> `accesstoken`/`refreshtoken` headers;
 `POST /schedule/betweenDates` (one day per call); `POST /scheduleUser/insert` to book;
@@ -31,6 +29,6 @@ Note: automated booking may violate Arbox/studio terms; use your own account, lo
     .venv/bin/pip install -r requirements-dev.txt
     .venv/bin/pytest
 
-51 tests: API client against a fake Arbox server shaped like the captured traffic
+54 tests: API client against a fake Arbox server shaped like the captured traffic
 (`tests/fake_arbox.py`), engine end-to-end (book, retry, waitlist, failure, no double-booking),
 SQLite, and the web API/GUI. Nothing in the suite contacts the real Arbox.

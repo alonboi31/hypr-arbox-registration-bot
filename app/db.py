@@ -92,3 +92,9 @@ def recent_attempts(limit: int = 30):
             dict(r)
             for r in c.execute("SELECT * FROM attempts ORDER BY updated_at DESC LIMIT ?", (limit,))
         ]
+
+
+def release_dry_runs():
+    """Forget rehearsal results so those classes can be booked for real."""
+    with conn() as c:
+        c.execute("DELETE FROM attempts WHERE status='dry-run'")

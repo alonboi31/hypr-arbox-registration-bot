@@ -61,8 +61,12 @@ async def _book_when_open(client, c: GymClass):
     while datetime.now(TZ) < deadline:
         try:
             await client.book(c.id)
-            db.set_attempt(c.id, "booked")
-            await notify(f"Booked: {label(c)}")
+            if settings.dry_run:
+                db.set_attempt(c.id, "dry-run", "would have booked")
+                await notify(f"DRY RUN - would book: {label(c)}")
+            else:
+                db.set_attempt(c.id, "booked")
+                await notify(f"Booked: {label(c)}")
             return
         except BookingError as e:  # a real refusal: full class? membership limit?
             fresh = await client.get_class(c.id, c.start.date())
@@ -94,6 +98,8 @@ async def book_when_open(client, c: GymClass):
 
 async def tick(client, tasks: set):
     now = datetime.now(TZ)
+    if not settings.dry_run:
+        db.release_dry_runs()
     rules = [r for r in db.list_rules() if r["enabled"]]
     if not rules:
         return
