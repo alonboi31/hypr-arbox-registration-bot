@@ -92,8 +92,8 @@ async def schedule():
             "start": c.start.isoformat(),
             "weekday": c.start.weekday(),
             "time": f"{c.start:%H:%M}",
-            "opens": opening_time(c.start).isoformat(),
-            "registered": c.registered,
+            "opens": opening_time(c.start, c.registration_hours).isoformat(),
+            "registered": c.registered or c.in_standby,
             "matched": any(engine.matches(r, c) for r in active),
         }
         for c in classes

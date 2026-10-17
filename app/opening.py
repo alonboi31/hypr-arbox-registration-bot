@@ -3,14 +3,11 @@ from datetime import datetime, timedelta
 from .config import settings
 
 
-def opening_time(start: datetime) -> datetime:
+def opening_time(start: datetime, registration_hours: int | None = None) -> datetime:
     """When registration opens for a class starting at `start` (tz-aware).
 
-    Sunday/Monday classes open on the preceding Thursday at the same clock
-    time; everything else opens 48h before the start.
+    Arbox sends each class's `enable_registration_time` (hours before start):
+    48 for most classes, 72 for Sunday and most Monday classes.
     """
-    if start.weekday() in settings.early_open_weekdays:
-        days_back = (start.weekday() - 3) % 7  # Thursday == 3
-        # Sunday(6) -> 3 days back, Monday(0) -> 4 days back
-        return start - timedelta(days=days_back)
-    return start - timedelta(hours=settings.default_open_hours)
+    hours = registration_hours if registration_hours is not None else settings.default_open_hours
+    return start - timedelta(hours=hours)

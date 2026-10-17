@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from . import db
-from .arbox_client import BookingError, ClassFull, GymClass
+from .arbox_client import BookingError, GymClass, NotOpenYet
 from .config import settings
 from .opening import opening_time
 
@@ -42,9 +42,18 @@ async def notify(msg: str):
             log.exception("notify failed")
 
 
+async def waitlist(client, c: GymClass):
+    try:
+        await client.join_waitlist(c.id)
+        db.set_attempt(c.id, "waitlisted")
+        await notify(f"Class full, joined waitlist: {label(c)}")
+    except BookingError as e:
+        db.set_attempt(c.id, "failed", f"full, waitlist failed: {e}")
+        await notify(f"Class full, waitlist failed: {label(c)} ({e})")
+
+
 async def book_when_open(client, c: GymClass):
-    opens = opening_time(c.start)
-    delay = (opens - datetime.now(TZ)).total_seconds()
+    delay = (opening_time(c.start, c.registration_hours) - datetime.now(TZ)).total_seconds()
     if delay > 0:
         await asyncio.sleep(delay)
     deadline = datetime.now(TZ) + RETRY_WINDOW
@@ -55,16 +64,18 @@ async def book_when_open(client, c: GymClass):
             db.set_attempt(c.id, "booked")
             await notify(f"Booked: {label(c)}")
             return
-        except ClassFull:
-            try:
-                await client.join_waitlist(c.id)
-                db.set_attempt(c.id, "waitlisted")
-                await notify(f"Class full, joined waitlist: {label(c)}")
-            except BookingError as e:
-                db.set_attempt(c.id, "failed", f"full, waitlist failed: {e}")
-                await notify(f"Class full, no waitlist: {label(c)}")
+        except BookingError as e:  # a real refusal: full class? membership limit?
+            fresh = await client.get_class(c.id, c.start.date())
+            if fresh and fresh.registered:
+                db.set_attempt(c.id, "booked")
+                return
+            if fresh and fresh.full:
+                await waitlist(client, c)
+            else:
+                db.set_attempt(c.id, "failed", str(e))
+                await notify(f"FAILED to book {label(c)}: {e}")
             return
-        except Exception as e:  # NotOpenYet, network blips, etc. -> retry
+        except Exception as e:  # NotOpenYet, network blips -> retry
             last = str(e)
             await asyncio.sleep(RETRY_EVERY)
     db.set_attempt(c.id, "failed", last)
@@ -80,11 +91,11 @@ async def tick(client, tasks: set):
         now.date(), (now + timedelta(days=settings.lookahead_days)).date()
     )
     for c in classes:
-        if c.registered or c.start < now:
+        if c.registered or c.in_standby or c.start < now:
             continue
         if not any(matches(r, c) for r in rules):
             continue
-        if opening_time(c.start) - now > WAKE_AHEAD:
+        if opening_time(c.start, c.registration_hours) - now > WAKE_AHEAD:
             continue
         if not db.claim_attempt(c.id, label(c)):
             continue
