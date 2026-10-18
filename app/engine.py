@@ -52,9 +52,32 @@ async def notify(msg: str):
             log.exception("notify failed")
 
 
+VERIFY_TRIES = 3
+VERIFY_EVERY = 1.0
+
+
+async def verify(client, c: GymClass, waitlisted: bool = False) -> bool:
+    """Re-read the class from Arbox and confirm we are really in (or on its waitlist)."""
+    for i in range(VERIFY_TRIES):
+        if i:
+            await asyncio.sleep(VERIFY_EVERY)
+        try:
+            fresh = await client.get_class(c.id, c.start.date())
+        except Exception:
+            log.exception("verify failed")
+            continue
+        if fresh and (fresh.in_standby if waitlisted else fresh.registered):
+            return True
+    return False
+
+
 async def waitlist(client, c: GymClass):
     try:
         await client.join_waitlist(c.id)
+        if not settings.dry_run and not await verify(client, c, waitlisted=True):
+            db.set_attempt(c.id, "failed", "waitlist accepted but not confirmed on Arbox")
+            await notify(f"UNCONFIRMED waitlist, check the app: {label(c)}")
+            return
         db.set_attempt(c.id, "waitlisted")
         await notify(f"Class full, joined waitlist: {label(c)}")
     except BookingError as e:
@@ -97,9 +120,12 @@ async def _book_when_open(client, c: GymClass):
             if settings.dry_run:
                 db.set_attempt(c.id, "dry-run", "would have booked")
                 await notify(f"DRY RUN - would book: {label(c)}")
-            else:
+            elif await verify(client, c):
                 db.set_attempt(c.id, "booked")
-                await notify(f"Booked: {label(c)}")
+                await notify(f"Booked (confirmed on Arbox): {label(c)}")
+            else:
+                db.set_attempt(c.id, "failed", "booking accepted but class not registered on Arbox")
+                await notify(f"UNCONFIRMED booking, check the app: {label(c)}")
             return
         except BookingError as e:  # a real refusal: full class? membership limit?
             fresh = await client.get_class(c.id, c.start.date())

@@ -295,7 +295,7 @@ async def test_preflight_refreshes_schedule_before_booking(client, fake, fast, m
     sched = [i for i, p in enumerate(paths) if p.endswith("betweenDates")]
     first_post = next(i for i, p in enumerate(paths) if p.endswith("/scheduleUser/insert"))
     # tick fetch(es) + one pre-flight refresh, all before the first booking POST
-    assert len(sched) >= 2 and sched[-1] < first_post
+    assert len([i for i in sched if i < first_post]) >= 2  # tick fetch + pre-flight refresh
 
 
 async def test_poke_triggers_immediate_tick(client, monkeypatch):
@@ -312,3 +312,59 @@ async def test_poke_triggers_immediate_tick(client, monkeypatch):
     await asyncio.sleep(0.05)
     t.cancel()
     assert len(calls) == 2
+
+
+async def test_books_the_class_closest_to_24h_from_now(client, fake, fast, monkeypatch):
+    now = datetime.now(TZ)
+    target_time = now + timedelta(hours=24)
+    # a spread of hourly classes from +20h to +30h; none starts exactly at +24h
+    starts = [(now + timedelta(hours=h, minutes=17)).replace(second=0, microsecond=0) for h in range(20, 31)]
+    for i, s in enumerate(starts):
+        fake.add(raw_class(100 + i, s))
+    closest = min(range(len(starts)), key=lambda i: abs(starts[i] - target_time))
+    rule_for(starts[closest])  # "book that slot every week"
+    opens_in(monkeypatch, fake, 0.1)
+
+    assert await run_tick(client) == 1
+    assert fake.booked == [100 + closest]  # booked, and nothing else
+    assert status_of(100 + closest) == "booked"
+    assert any("Booked" in n for n in fast)
+
+
+async def test_booking_is_verified_after_attempt(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(14, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.1)
+    await run_tick(client)
+    paths = [p for _, p, _ in fake.calls]
+    last_post = max(i for i, p in enumerate(paths) if p.endswith("/scheduleUser/insert"))
+    assert any(p.endswith("betweenDates") for p in paths[last_post + 1:])  # re-read after booking
+    assert any("confirmed on Arbox" in n for n in fast)
+
+
+async def test_accepted_but_not_registered_is_reported(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(15, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.1)
+    monkeypatch.setattr(engine, "VERIFY_EVERY", 0.01)
+    real = client.get_class
+    booked = False
+
+    async def lying_get_class(cid, day):
+        c = await real(cid, day)
+        return replace(c, registered=False) if c and booked else c
+
+    orig_book = client.book
+
+    async def book(cid):
+        nonlocal booked
+        await orig_book(cid)
+        booked = True
+
+    monkeypatch.setattr(client, "get_class", lying_get_class)
+    monkeypatch.setattr(client, "book", book)
+    await run_tick(client)
+    assert status_of(15) == "failed"
+    assert any("UNCONFIRMED" in n for n in fast)
