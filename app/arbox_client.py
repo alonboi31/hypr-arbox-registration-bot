@@ -31,6 +31,7 @@ class GymClass:
     in_standby: bool = False   # I'm on the waitlist
     full: bool = False
     registration_hours: int | None = None  # hours before start that booking opens
+    schedule_user_id: int | None = None  # my booking's id (needed to cancel it)
 
 
 class LoginError(Exception):
@@ -68,6 +69,7 @@ def _parse_class(c: dict) -> GymClass:
         in_standby=bool(c.get("user_in_standby")),
         full=c.get("free", 1) == 0 or len(c.get("booked_users") or []) >= c.get("max_users", 10**9),
         registration_hours=c.get("enable_registration_time"),
+        schedule_user_id=c.get("user_booked") or None,
     )
 
 
@@ -176,6 +178,21 @@ class ArboxClient:
             log.info("DRY_RUN: would book %s", class_id)
             return
         await self._insert("/scheduleUser/insert", class_id)
+
+    async def cancel(self, c: GymClass):
+        """Cancel my booking (never a late cancel: Arbox may charge for those)."""
+        if not c.schedule_user_id:
+            raise BookingError("not registered for this class, nothing to cancel")
+        r = await self._request("POST", "/scheduleUser/checkLateCancel", json={"schedule_id": int(c.id)})
+        if r.status_code != 200:
+            raise BookingError(f"cancel check failed: {r.status_code} {r.text[:200]}")
+        r = await self._request(
+            "POST",
+            "/scheduleUser/delete",
+            json={"schedule_user_id": c.schedule_user_id, "schedule_id": int(c.id), "late_cancel": False},
+        )
+        if r.status_code != 200:
+            raise BookingError(f"cancel failed: {r.status_code} {','.join(self._reasons(r)) or r.text[:200]}")
 
     async def join_waitlist(self, class_id: str):
         if settings.dry_run:

@@ -114,4 +114,15 @@ class FakeArbox:
                 c["user_in_standby"] = 700000 + body["schedule_id"]
             return httpx.Response(200, json={"data": c})
 
+        if short == "/scheduleUser/checkLateCancel":
+            return httpx.Response(200, text="OK")
+
+        if short == "/scheduleUser/delete":
+            c = self.classes[body["schedule_id"]]
+            if c.get("user_booked") != body["schedule_user_id"] or body["late_cancel"] is not False:
+                return _err(425, "notRegistered")
+            self.booked.remove(body["schedule_id"])
+            c["user_booked"] = None
+            return httpx.Response(200, json={"data": c})
+
         return httpx.Response(404, json={"error": f"unhandled {short}"})

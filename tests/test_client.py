@@ -133,3 +133,27 @@ async def test_dry_run_sends_nothing(fake, monkeypatch):
     await c.book("1")
     await c.join_waitlist("2")
     assert not fake.posts("/scheduleUser/insert") and not fake.posts("/scheduleStandBy/insert")
+
+
+def future_start():
+    return (datetime.now(TZ) + timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+
+
+async def test_cancel_removes_my_booking(client, fake):
+    fake.add(raw_class(60, future_start()))
+    await client.book("60")
+    c = await client.get_class("60", future_start().date())
+    assert c.registered and c.schedule_user_id == 900060
+    await client.cancel(c)
+    assert fake.booked == []
+    again = await client.get_class("60", future_start().date())
+    assert not again.registered
+    sent = fake.posts("/scheduleUser/delete")[0]
+    assert sent == {"schedule_user_id": 900060, "schedule_id": 60, "late_cancel": False}
+
+
+async def test_cancel_without_booking_raises(client, fake):
+    fake.add(raw_class(61, future_start()))
+    c = await client.get_class("61", future_start().date())
+    with pytest.raises(BookingError):
+        await client.cancel(c)

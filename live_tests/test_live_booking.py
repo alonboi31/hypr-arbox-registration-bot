@@ -1,4 +1,4 @@
-"""LIVE test against the real Arbox server. Books a REAL class; cancel it by hand afterwards.
+"""LIVE test against the real Arbox server. Books a REAL class, then cancels it again (and checks that it is gone).
 
 Not part of the normal suite (pytest.ini only collects tests/). Run with:
     uv run --env-file .env pytest live_tests -s
@@ -49,6 +49,15 @@ async def test_books_real_class_closest_to_24h_from_now(monkeypatch):
             print(f"  refused ({e}), trying the next closest")
     assert chosen, "every candidate was refused by the membership frequency limit"
 
-    after = await client.get_class(chosen.id, chosen.start.date())
-    assert after is not None and after.registered, "booking request was accepted but class is not registered"
-    print(f"Booked and confirmed: {chosen.name} {chosen.start:%a %d/%m %H:%M}. Cancel it by hand in the Arbox app.")
+    # always cancel what this test booked, even if the assertion below fails
+    try:
+        after = await client.get_class(chosen.id, chosen.start.date())
+        assert after is not None and after.registered, "booking request was accepted but class is not registered"
+        print(f"Booked and confirmed: {chosen.name} {chosen.start:%a %d/%m %H:%M}")
+    finally:
+        mine = await client.get_class(chosen.id, chosen.start.date())
+        if mine and mine.registered:
+            await client.cancel(mine)
+            gone = await client.get_class(chosen.id, chosen.start.date())
+            assert gone is not None and not gone.registered, "cancel was sent but class is still registered"
+            print("Cancelled again and confirmed.")
