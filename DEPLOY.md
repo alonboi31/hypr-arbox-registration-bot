@@ -29,6 +29,31 @@ recreate the server in another region.
 
 When creating the server, add your SSH key (or choose password-less key login).
 
+### Free option: Google Cloud e2-micro
+
+Free only in `us-west1`, `us-central1` or `us-east1` (not Israel), so Arbox is
+further away; it needs a billing account with a card, but a single e2-micro with a
+30 GB standard disk stays inside the Always Free allowance. Set a budget alert
+(Billing, Budgets & alerts, e.g. 1 USD) in case something outside the free tier is charged.
+With the `gcloud` CLI installed and `gcloud auth login` done:
+
+```bash
+gcloud compute instances create arbox-bot --zone=us-central1-a \
+  --machine-type=e2-micro --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud --boot-disk-size=30GB --boot-disk-type=pd-standard
+gcloud compute ssh arbox-bot --zone=us-central1-a     # use this instead of `ssh root@...`
+```
+
+1 GB of RAM is tight for `docker compose build`; add swap first (after connecting):
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+```
+
+Then continue with step 2 (prefix commands with `sudo` since you are not root). The default
+firewall only allows SSH from outside; the web page stays on localhost as in step 6
+(use `gcloud compute ssh arbox-bot --zone=us-central1-a -- -L 8000:localhost:8000` for the tunnel).
+
 ## 2. Prepare the server
 
 Connect: `ssh root@YOUR_SERVER_IP`
