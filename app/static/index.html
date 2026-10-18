@@ -3,72 +3,288 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Arbox Bot</title>
+<title>Class booker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#fff; --fg:#1a1a1a; --mut:#6b6b6b; --line:#e3e3e3; --acc:#1f6feb; --ok:#1a7f37; --bad:#cf222e; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --line:#333; --acc:#58a6ff; --ok:#3fb950; --bad:#f85149; } }
-  body { font:15px system-ui,sans-serif; background:var(--bg); color:var(--fg); margin:0 auto; max-width:760px; padding:16px; }
-  h2 { margin:28px 0 8px; font-size:16px; }
-  table { width:100%; border-collapse:collapse; }
-  td,th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
-  th { color:var(--mut); font-weight:500; font-size:13px; }
-  button,select,input { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
-  button { cursor:pointer; } button.p { background:var(--acc); color:#fff; border-color:var(--acc); }
-  .row { display:flex; gap:8px; flex-wrap:wrap; }
-  .tag { font-size:12px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); }
-  .booked { color:var(--ok); } .failed { color:var(--bad); } .mut { color:var(--mut); }
-  .scroll { overflow-x:auto; }
+  :root {
+    --bg:#F4F3EF; --card:#FFFFFF; --fg:#16181A; --mut:#5E625F; --line:#E1DFD7; --line2:#EEECE5; --band:#F0EEE7;
+    --hover:#F8F7F3; --chip:#E8E6DF; --acc:#1F5F4A; --accfg:#FFFFFF; --btn:#CFCCC1; --off:#BDBAAE;
+    --ok-bg:#E3F1EA; --ok:#1F5F4A; --wait-bg:#FBEBCB; --wait:#7A4B00;
+    --pend-bg:#E4EBF8; --pend:#2B4C8C; --bad-bg:#F8E1E1; --bad:#8A2D2D; --none-bg:#EFEDE6;
+    --info-bg:#EEF4F1; --info:#1F4A3B; --focus:#9CC9B6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#121513; --card:#1B1F1D; --fg:#ECEBE6; --mut:#9DA29E; --line:#2D332F; --line2:#262B28; --band:#222724;
+      --hover:#212623; --chip:#242A27; --acc:#3FA27F; --accfg:#0C1410; --btn:#3B423E; --off:#4A514D;
+      --ok-bg:#1B3A2E; --ok:#7FD1B0; --wait-bg:#3E3216; --wait:#F0C56A;
+      --pend-bg:#1E2B47; --pend:#9DB8F0; --bad-bg:#432121; --bad:#F2A0A0; --none-bg:#262B28;
+      --info-bg:#1C2B25; --info:#9AD8BF; --focus:#3FA27F;
+    }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 'DM Sans',system-ui,sans-serif; }
+  h1,h2 { font-family:'Bricolage Grotesque','DM Sans',sans-serif; margin:0; }
+  button,select,input { font:inherit; color:inherit; }
+  button { cursor:pointer; }
+  :focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+  .wrap { max-width:1200px; margin:0 auto; padding:28px 24px 64px; display:flex; flex-direction:column; gap:24px; }
+  header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .logo { width:40px; height:40px; border-radius:12px; background:var(--acc); display:flex; align-items:center; justify-content:center; }
+  h1 { font-size:24px; letter-spacing:-.01em; }
+  .sub { color:var(--mut); font-size:13px; }
+  nav { display:flex; gap:4px; background:var(--chip); padding:4px; border-radius:12px; }
+  nav button { min-height:40px; padding:0 16px; border:0; border-radius:9px; background:transparent; font-weight:600; display:flex; align-items:center; gap:8px; }
+  nav button[aria-pressed=true] { background:var(--card); box-shadow:0 1px 2px rgba(0,0,0,.15); }
+  nav .n { font-size:12px; padding:1px 7px; border-radius:999px; background:var(--line); }
+  nav button[aria-pressed=true] .n { background:var(--acc); color:var(--accfg); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+  .card + .card { margin-top:24px; }
+  .head { padding:20px 24px 12px; display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  h2 { font-size:20px; }
+  .item { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; padding:14px 24px; border-top:1px solid var(--line2); }
+  .item:hover { background:var(--hover); }
+  .when { width:96px; flex:none; font-weight:600; }
+  .when small, .time + small { display:block; color:var(--mut); font-weight:400; font-size:13px; }
+  .time { width:64px; flex:none; font-weight:600; font-variant-numeric:tabular-nums; }
+  .grow { flex:1 1 200px; min-width:0; }
+  .grow b { font-weight:600; }
+  .grow small { display:block; color:var(--mut); font-size:13px; }
+  .band { padding:12px 24px; background:var(--band); border-top:1px solid var(--line); font:600 15px 'Bricolage Grotesque',sans-serif; }
+  .empty { padding:24px; border-top:1px solid var(--line2); color:var(--mut); }
+  .badge { display:inline-block; padding:4px 10px; border-radius:999px; font-size:13px; font-weight:600; white-space:nowrap; }
+  .booked { background:var(--ok-bg); color:var(--ok); } .waitlisted { background:var(--wait-bg); color:var(--wait); }
+  .pending, .auto { background:var(--pend-bg); color:var(--pend); } .failed { background:var(--bad-bg); color:var(--bad); }
+  .none { background:var(--none-bg); color:var(--mut); }
+  .btn { min-height:44px; padding:0 16px; background:transparent; border:1px solid var(--btn); border-radius:10px; font-size:14px; }
+  .btn:hover { background:var(--hover); }
+  .btn.acc { border-color:var(--acc); color:var(--acc); font-weight:600; }
+  .btn:disabled { border-color:var(--line); color:var(--mut); cursor:default; }
+  .btn.del { width:44px; padding:0; display:flex; align-items:center; justify-content:center; color:var(--bad); }
+  .opens { display:flex; align-items:center; gap:8px; color:var(--pend); font-size:14px; font-weight:500; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .chip { min-height:44px; padding:0 16px; border-radius:999px; font-size:14px; font-weight:600; border:1px solid var(--btn); background:var(--card); }
+  .chip[aria-pressed=true] { background:var(--acc); border-color:var(--acc); color:var(--accfg); }
+  .rules { display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start; }
+  .rules > section { flex:999 1 520px; min-width:0; }
+  .rules > form { flex:1 1 320px; min-width:0; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px 24px 24px; display:flex; flex-direction:column; gap:16px; }
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field label { font-weight:600; font-size:14px; }
+  .field label span, .hint { font-weight:400; color:var(--mut); font-size:13px; }
+  .field select, .field input { height:44px; padding:0 12px; border:1px solid var(--btn); border-radius:10px; background:var(--card); }
+  .preview { padding:12px 14px; background:var(--info-bg); border-radius:10px; color:var(--info); font-size:14px; }
+  .submit { min-height:48px; border:0; border-radius:12px; background:var(--acc); color:var(--accfg); font-size:16px; font-weight:600; }
+  .switch { width:52px; height:32px; border:0; border-radius:999px; position:relative; flex:none; background:var(--off); }
+  .switch[aria-checked=true] { background:var(--acc); }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:26px; height:26px; border-radius:50%; background:#fff; transition:left .15s; }
+  .switch[aria-checked=true]::after { left:23px; }
+  .off { opacity:.5; }
+  .err { color:var(--bad); font-size:13px; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-<h1 style="font-size:20px">Arbox auto-register</h1>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F4F3EF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M9 15l2 2 4-4"/></svg></div>
+      <div><h1>Class booker</h1><div class="sub" id="updated">Loading…</div></div>
+    </div>
+    <nav aria-label="Sections" id="tabs"></nav>
+  </header>
 
-<h2>Auto-book rules</h2>
-<div class="row">
-  <select id="wd"></select>
-  <input id="tm" type="time" value="18:00">
-  <input id="nm" placeholder="name contains (optional)">
-  <button class="p" onclick="addRule()">Add rule</button>
+  <main>
+    <div id="mine" hidden>
+      <section class="card" aria-labelledby="h-reg">
+        <div class="head"><h2 id="h-reg">Registered</h2><span class="sub" id="reg-count"></span></div>
+        <div id="reg"></div>
+      </section>
+      <section class="card" aria-labelledby="h-up">
+        <div class="head"><h2 id="h-up">Will be booked automatically</h2><span class="sub">From your rules, waiting for registration to open</span></div>
+        <div id="up"></div>
+      </section>
+      <section class="card" aria-labelledby="h-att">
+        <div class="head"><h2 id="h-att">Recent attempts</h2></div>
+        <div id="att"></div>
+      </section>
+    </div>
+
+    <div id="schedule" hidden>
+      <div class="chips" role="group" aria-label="Filter by day" id="chips"></div>
+      <div class="card" id="sched"></div>
+    </div>
+
+    <div id="rulesTab" class="rules" hidden>
+      <section class="card" aria-labelledby="h-rules">
+        <div class="head" style="display:block">
+          <h2 id="h-rules">Auto-booking rules</h2>
+          <div class="sub" style="margin-top:2px">Each week the bot books any class that matches an enabled rule, the moment registration opens.</div>
+        </div>
+        <div id="rules"></div>
+      </section>
+      <form id="form" aria-labelledby="h-new">
+        <h2 id="h-new">New rule</h2>
+        <div class="field"><label for="f-day">Day</label><select id="f-day"></select></div>
+        <div class="field"><label for="f-time">Class time</label><input id="f-time" type="time" value="18:00" required></div>
+        <div class="field">
+          <label for="f-name">Class name contains <span>(optional)</span></label>
+          <input id="f-name" type="text" placeholder="e.g. CrossFit" autocomplete="off">
+          <div class="hint">Leave empty to book whatever runs at that time.</div>
+        </div>
+        <div class="preview" id="preview"></div>
+        <div class="err" id="form-err" role="alert"></div>
+        <button class="submit" type="submit">Add rule</button>
+      </form>
+    </div>
+  </main>
 </div>
-<div class="scroll"><table id="rules"></table></div>
-
-<h2>Upcoming classes <span class="mut">(tap to toggle auto-book for that weekly slot)</span></h2>
-<div class="scroll"><table id="sched"></table></div>
-
-<h2>Recent attempts</h2>
-<div class="scroll"><table id="att"></table></div>
 
 <script>
-const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const $ = id => document.getElementById(id);
-$("wd").innerHTML = DAYS.map((d,i)=>`<option value="${i}">${d}</option>`).join("");
-const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const api = (p, o={}) => fetch(p, {headers:{"Content-Type":"application/json"}, ...o}).then(r => r.json());
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const state = { tab: "mine", day: "all", rules: [], sched: [], att: [] };
+const BADGE = { booked:"Booked", waitlisted:"Waitlist", pending:"Pending", failed:"Failed", auto:"Auto-book", none:"Not booked", registered:"Registered" };
+const badge = k => `<span class="badge ${k === "registered" ? "booked" : k}">${BADGE[k] || esc(k)}</span>`;
+const clock = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+const trash = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
 
-async function addRule(wd = +$("wd").value, time = $("tm").value, name = $("nm").value) {
-  await api("/api/rules", {method:"POST", body:JSON.stringify({weekday:wd, time, name_contains:name})});
-  load();
+const dayOf = s => new Date(s).toLocaleDateString([], { weekday: "long", day: "numeric", month: "short" });
+const shortDay = s => new Date(s).toLocaleDateString([], { weekday: "short" });
+const dateOf = s => new Date(s).toLocaleDateString([], { day: "numeric", month: "short" });
+const hm = s => new Date(s).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+const opens = s => new Date(s).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!r.ok) throw new Error(path + " " + r.status);
+  return r.json();
 }
-async function toggle(id, on) { await api("/api/rules/"+id, {method:"PATCH", body:JSON.stringify({enabled:on})}); load(); }
-async function del(id) { await api("/api/rules/"+id, {method:"DELETE"}); load(); }
+
+// registered classes carry a status from the attempts log (booked / waitlisted); fall back to a plain "registered"
+function enrich() {
+  const byId = Object.fromEntries(state.att.map(a => [a.class_id, a]));
+  return state.sched.map(c => {
+    const a = byId[c.id];
+    const status = c.registered ? (a && (a.status === "booked" || a.status === "waitlisted") ? a.status : "registered")
+      : c.matched ? "auto" : "none";
+    return { ...c, status };
+  });
+}
+
+function renderTabs(list) {
+  const n = { mine: list.filter(c => c.status !== "none").length, schedule: list.length, rulesTab: state.rules.length };
+  const defs = [["mine", "My classes"], ["schedule", "Schedule"], ["rulesTab", "Rules"]];
+  $("tabs").innerHTML = defs.map(([id, label]) =>
+    `<button aria-pressed="${state.tab === id}" data-tab="${id}">${label}<span class="n">${n[id]}</span></button>`).join("");
+  for (const [id] of defs) $(id).hidden = state.tab !== id;
+}
+
+function row(c, right) {
+  return `<div class="item">
+    <div class="when">${esc(shortDay(c.start))}<small>${esc(dateOf(c.start))}</small></div>
+    <div class="time">${esc(hm(c.start))}</div>
+    <div class="grow"><b>${esc(c.name)}</b><small>${c.coach ? "with " + esc(c.coach) : ""}</small></div>${right}</div>`;
+}
+
+function renderMine(list) {
+  const reg = list.filter(c => ["booked", "waitlisted", "registered"].includes(c.status));
+  const up = list.filter(c => c.status === "auto");
+  $("reg-count").textContent = reg.length + " upcoming";
+  $("reg").innerHTML = reg.map(c => row(c, badge(c.status))).join("") || '<div class="empty">Nothing booked yet.</div>';
+  $("up").innerHTML = up.map(c => row(c, `<div class="opens">${clock}Opens ${esc(opens(c.opens))}</div>`)).join("")
+    || '<div class="empty">No upcoming matches. Add a rule or enable one.</div>';
+  $("att").innerHTML = state.att.map(a => `<div class="item">${badge(a.status)}
+    <b>${esc(a.class_label)}</b><span class="grow sub">${esc(a.detail)}</span>
+    <span class="sub">${esc(new Date(a.updated_at.replace(" ", "T") + "Z").toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }))}</span></div>`).join("")
+    || '<div class="empty">Nothing yet.</div>';
+}
+
+function renderSchedule(list) {
+  const keys = [...new Set(list.map(c => c.start.slice(0, 10)))];
+  $("chips").innerHTML = [["all", "All week"], ...keys.map(k => [k, shortDay(k + "T12:00") + " " + new Date(k + "T12:00").getDate()])]
+    .map(([k, l]) => `<button class="chip" aria-pressed="${state.day === k}" data-day="${k}">${esc(l)}</button>`).join("");
+  const have = rule => state.rules.some(r => r.weekday === rule.weekday && r.time === rule.time && r.name_contains.toLowerCase() === rule.name.toLowerCase());
+  let html = "";
+  for (const k of keys) {
+    if (state.day !== "all" && state.day !== k) continue;
+    html += `<div class="band">${esc(dayOf(k + "T12:00"))}</div>`;
+    for (const c of list.filter(x => x.start.slice(0, 10) === k)) {
+      const has = have(c);
+      const act = c.registered ? "" : `<button class="btn acc" ${has ? "disabled" : ""} data-add="${esc(c.id)}"
+        aria-label="${has ? "Rule exists for" : "Always book"} ${esc(c.name)} on ${esc(DAYS[c.weekday])} at ${esc(c.time)}">${has ? "Rule added" : "Always book"}</button>`;
+      html += `<div class="item"><div class="time">${esc(c.time)}</div>
+        <div class="grow"><b>${esc(c.name)}</b><small>${c.coach ? "with " + esc(c.coach) + " · " : ""}registration opens ${esc(opens(c.opens))}</small></div>
+        ${badge(c.status)}${act}</div>`;
+    }
+  }
+  $("sched").innerHTML = html || '<div class="empty">No upcoming classes.</div>';
+}
+
+function renderRules() {
+  const matches = r => state.sched.filter(c => c.weekday === r.weekday && c.time === r.time &&
+    (!r.name_contains || c.name.toLowerCase().includes(r.name_contains.toLowerCase()))).length;
+  $("rules").innerHTML = state.rules.map(r => {
+    const n = matches(r), label = DAYS[r.weekday] + " " + r.time;
+    return `<div class="item">
+      <div class="grow ${r.enabled ? "" : "off"}"><b>Every ${DAYS[r.weekday]} at ${esc(r.time)}</b>
+        <small>${r.name_contains ? "Name contains “" + esc(r.name_contains) + "”" : "Any class"} · ${n ? "matches " + n + (n === 1 ? " class" : " classes") + " this week" : "no class this week"}</small></div>
+      <button class="switch" role="switch" aria-checked="${!!r.enabled}" aria-label="${r.enabled ? "Disable" : "Enable"} rule ${label}" data-toggle="${r.id}"></button>
+      <button class="btn del" aria-label="Delete rule ${label}" data-del="${r.id}">${trash}</button></div>`;
+  }).join("") || '<div class="empty">No rules yet. Add one on the right.</div>';
+  updatePreview();
+}
+
+function updatePreview() {
+  const name = $("f-name").value.trim();
+  $("preview").textContent = `Every ${DAYS[+$("f-day").value]} at ${$("f-time").value || "--:--"}, ${name ? "classes containing “" + name + "”" : "any class"}.`;
+}
+
+function render() {
+  const list = enrich();
+  renderTabs(list); renderMine(list); renderSchedule(list); renderRules();
+}
 
 async function load() {
-  const [rules, sched, att] = await Promise.all([api("/api/rules"), api("/api/schedule"), api("/api/attempts")]);
-  $("rules").innerHTML = "<tr><th>Day</th><th>Time</th><th>Name</th><th></th></tr>" + (rules.map(r => `
-    <tr><td>${DAYS[r.weekday]}</td><td>${esc(r.time)}</td><td>${esc(r.name_contains) || '<span class="mut">any</span>'}</td>
-    <td><button onclick="toggle(${r.id},${!r.enabled})">${r.enabled ? "On" : "Off"}</button>
-        <button onclick="del(${r.id})">Delete</button></td></tr>`).join("") || '<tr><td class="mut">No rules yet</td></tr>');
-  $("sched").innerHTML = "<tr><th>Class</th><th>When</th><th>Opens</th><th></th></tr>" + sched.map(c => {
-    const f = s => new Date(s).toLocaleString([], {weekday:"short", day:"numeric", month:"numeric", hour:"2-digit", minute:"2-digit"});
-    const act = c.matched ? '<span class="tag booked">auto</span>'
-      : `<button onclick='addRule(${c.weekday},${JSON.stringify(c.time)},${JSON.stringify(c.name)})'>Auto-book</button>`;
-    return `<tr><td>${esc(c.name)} <span class="mut">${esc(c.coach)}</span></td><td>${f(c.start)}</td><td class="mut">${f(c.opens)}</td>
-      <td>${c.registered ? '<span class="tag booked">registered</span>' : act}</td></tr>`;
-  }).join("");
-  $("att").innerHTML = "<tr><th>Class</th><th>Status</th><th>Detail</th></tr>" + (att.map(a =>
-    `<tr><td>${esc(a.class_label)}</td><td class="${a.status}">${esc(a.status)}</td><td class="mut">${esc(a.detail)}</td></tr>`).join("")
-    || '<tr><td class="mut">Nothing yet</td></tr>');
+  try {
+    const [rules, sched, att] = await Promise.all([api("/api/rules"), api("/api/schedule"), api("/api/attempts")]);
+    Object.assign(state, { rules, sched, att });
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    render();
+  } catch (e) {
+    $("updated").textContent = "Could not reach the server. Retrying…";
+  }
 }
+
+async function mutate(path, opts) { try { await api(path, opts); } catch (e) { $("form-err").textContent = "Something went wrong. Try again."; } await load(); }
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-tab],[data-day],[data-add],[data-toggle],[data-del]");
+  if (!t) return;
+  if (t.dataset.tab) { state.tab = t.dataset.tab; render(); }
+  else if (t.dataset.day) { state.day = t.dataset.day; render(); }
+  else if (t.dataset.add) {
+    const c = state.sched.find(x => x.id == t.dataset.add);
+    if (c) mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: c.weekday, time: c.time, name_contains: c.name }) });
+  } else if (t.dataset.toggle) {
+    const r = state.rules.find(x => x.id == t.dataset.toggle);
+    mutate("/api/rules/" + r.id, { method: "PATCH", body: JSON.stringify({ enabled: !r.enabled }) });
+  } else if (t.dataset.del) {
+    mutate("/api/rules/" + t.dataset.del, { method: "DELETE" });
+  }
+});
+
+$("f-day").innerHTML = DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("");
+for (const id of ["f-day", "f-time", "f-name"]) $(id).addEventListener("input", updatePreview);
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("form-err").textContent = "";
+  await mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: +$("f-day").value, time: $("f-time").value, name_contains: $("f-name").value.trim() }) });
+  $("f-name").value = ""; updatePreview();
+});
+
 load(); setInterval(load, 30000);
 </script>
 </body>

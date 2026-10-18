@@ -28,7 +28,7 @@ def test_everything_requires_auth(web):
 def test_gui_page_is_served(web):
     r = web.get("/", auth=AUTH)
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
-    for needle in ("Auto-book rules", "Upcoming classes", "Recent attempts", "/api/rules", "/api/schedule", "esc("):
+    for needle in ("Auto-booking rules", "Registered", "Schedule", "Recent attempts", "/api/rules", "/api/schedule", "esc("):
         assert needle in r.text
 
 
