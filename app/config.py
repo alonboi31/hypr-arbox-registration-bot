@@ -26,6 +26,13 @@ class Settings:
     mock: bool = os.getenv("ARBOX_MOCK", "0") == "1"
     # Log what would be booked without sending the booking request.
     dry_run: bool = os.getenv("DRY_RUN", "0") == "1"
+    # Calendar invites by email (all empty = feature off). For Gmail use smtp.gmail.com and an App Password.
+    calendar_to: str = os.getenv("CALENDAR_TO", "")
+    smtp_host: str = os.getenv("SMTP_HOST", "")
+    smtp_port: int = _int("SMTP_PORT", 587)
+    smtp_user: str = os.getenv("SMTP_USER", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    smtp_from: str = os.getenv("SMTP_FROM", "")
     # Fallback only: the server tells us each class's opening window.
     default_open_hours: int = 48
     lookahead_days: int = 5

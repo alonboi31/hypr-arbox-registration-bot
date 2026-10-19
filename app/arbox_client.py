@@ -33,6 +33,7 @@ class GymClass:
     registration_hours: int | None = None  # hours before start that booking opens
     schedule_user_id: int | None = None  # my booking's id (needed to cancel it)
     stand_by_id: int | None = None       # my waitlist entry's id (needed to leave the waitlist)
+    end: datetime | None = None          # tz-aware end of the class, when Arbox says
 
 
 class LoginError(Exception):
@@ -61,6 +62,14 @@ def _parse_class(c: dict) -> GymClass:
     start = datetime.fromisoformat(dt["date"]).replace(tzinfo=ZoneInfo(dt.get("timezone") or settings.timezone))
     cat = c.get("box_categories") or {}
     coach = c.get("coach") or {}
+    end = None
+    try:  # "end_time": "14:00" on the class's own day
+        eh, em = map(int, str(c.get("end_time") or "").split(":")[:2])
+        end = start.replace(hour=eh, minute=em, second=0, microsecond=0)
+        if end <= start:
+            end = None
+    except ValueError:
+        pass
     return GymClass(
         id=str(c["id"]),
         name=cat.get("name", ""),
@@ -72,6 +81,7 @@ def _parse_class(c: dict) -> GymClass:
         registration_hours=c.get("enable_registration_time"),
         schedule_user_id=c.get("user_booked") or None,
         stand_by_id=c.get("user_in_standby") or None,
+        end=end.astimezone(TZ) if end else None,
     )
 
 

@@ -239,3 +239,30 @@ The container restarts by itself after crashes or server reboots
 | `FAILED ... registerScheduleDisabled` after 2 minutes | The class did not open when the bot expected. Compare the time shown in the page with the app, and tell me, so I can fix the rule for that weekday. |
 | No phone alerts | `NTFY_TOPIC` in `.env` must match the topic in the ntfy app exactly. Restart with `docker compose up -d` after editing (`docker compose up -d --force-recreate`). |
 | Bot did nothing for a class | In the page, check the rule is on, the weekday, time, and name text match the class. The `check` command prints all matches. |
+
+---
+
+## Optional: calendar invites by email
+
+After every *confirmed* booking the bot emails you a calendar invite (`.ics`), and sends a
+cancellation if you cancel a class from the web page. Leave the `CALENDAR_TO` line empty to keep it off.
+
+For Gmail (a dedicated sending address is cleanest, but your own works):
+1. Turn on 2-Step Verification for the sending account, then create an **App Password**
+   (myaccount.google.com, Security, App passwords). It is a 16-character code.
+2. In `.env` on the server set:
+
+```
+CALENDAR_TO=you@gmail.com        # where the invite goes (your calendar's address)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=sender@gmail.com       # the account that sends
+SMTP_PASSWORD=xxxxxxxxxxxxxxxx   # the App Password, not your normal password
+```
+
+3. `docker compose up -d` to restart. Booking never fails because of an email problem; you
+   just get a "Calendar invite could not be sent" notification and a line in the logs.
+
+Notes: the cancellation email removes the event in Gmail, Apple Calendar and Outlook when you
+accepted the invite, but cancelling a class by hand in the Arbox app does not trigger it.
+Waitlist spots get no invite.

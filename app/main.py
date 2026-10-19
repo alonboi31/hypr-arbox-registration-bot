@@ -139,6 +139,8 @@ async def cancel(body: CancelIn):
     # remember it, so a matching rule does not book the class again straight away
     db.claim_attempt(c.id, engine.label(c))
     db.set_attempt(c.id, "cancelled", "cancelled by you")
+    if c.registered:  # not for waitlist spots, which never got an invite
+        await engine.invite(c, "CANCEL")
     return {"ok": True}
 
 

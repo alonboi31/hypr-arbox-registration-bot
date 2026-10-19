@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from . import db
+from . import calendar_invite
 from .arbox_client import BookingError, GymClass, NotOpenYet
 from .config import settings
 from .opening import opening_time
@@ -125,6 +126,7 @@ async def _book_when_open(client, c: GymClass):
             elif await verify(client, c):
                 db.set_attempt(c.id, "booked")
                 await notify(f"Booked (confirmed on Arbox): {label(c)}")
+                await invite(c)
             else:
                 db.set_attempt(c.id, "failed", "booking accepted but class not registered on Arbox")
                 await notify(f"UNCONFIRMED booking, check the app: {label(c)}")
@@ -157,6 +159,11 @@ async def book_when_open(client, c: GymClass):
         db.set_attempt(c.id, "failed", f"{type(e).__name__}: {e}")
         await notify(f"FAILED to book {label(c)}: {type(e).__name__}: {e}")
         finish_once(c)
+
+
+async def invite(c: GymClass, method: str = "REQUEST"):
+    if calendar_invite.enabled() and not await calendar_invite.send(c, method):
+        await notify(f"Calendar invite could not be sent for {label(c)}")
 
 
 def finish_once(c: GymClass):
