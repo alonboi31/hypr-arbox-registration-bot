@@ -95,3 +95,44 @@ def test_app_starts_and_stops_with_background_engine():
     with TestClient(app) as c:  # runs lifespan: db.init + engine loop task
         assert c.get("/api/rules", auth=AUTH).status_code == 200
     # leaving the block cancels the loop without errors
+
+
+def test_once_rule_via_api_gets_next_date_or_the_given_one(web):
+    web.post("/api/rules", auth=AUTH, json={"weekday": 2, "time": "18:00", "once": True})
+    web.post("/api/rules", auth=AUTH, json={"weekday": 2, "time": "18:00", "once": True, "date": "2026-12-09"})
+    web.post("/api/rules", auth=AUTH, json={"weekday": 2, "time": "18:00"})
+    first, pinned, weekly = sorted(db.list_rules(), key=lambda r: r["id"])
+    d = datetime.strptime(first["once_date"], "%Y-%m-%d")
+    assert d.weekday() == 2 and datetime(d.year, d.month, d.day, 18, tzinfo=TZ) > datetime.now(TZ)
+    assert d.date() - datetime.now(TZ).date() <= timedelta(days=7)  # the *next* one
+    assert pinned["once_date"] == "2026-12-09" and weekly["once_date"] is None
+
+
+def test_bad_once_date_is_rejected(web):
+    r = web.post("/api/rules", auth=AUTH, json={"weekday": 2, "time": "18:00", "date": "tomorrow"})
+    assert r.status_code == 422
+
+
+def test_cancel_registration_via_api_and_it_is_not_rebooked(web):
+    from app import main
+    classes = web.get("/api/schedule", auth=AUTH).json()
+    target = classes[0]
+    main.client._booked.add(target["id"])
+    db.add_rule(target["weekday"], target["time"], "")  # a weekly rule that matches it
+    day = target["start"][:10]
+
+    assert web.post("/api/cancel", auth=AUTH, json={"class_id": target["id"], "date": day}).status_code == 200
+    assert target["id"] not in main.client._booked
+    assert db.get_attempt(target["id"])["status"] == "cancelled"  # so the bot leaves it alone
+    after = next(c for c in web.get("/api/schedule", auth=AUTH).json() if c["id"] == target["id"])
+    assert after["matched"] is False and after["registered"] is False
+
+
+def test_cancel_unregistered_class_is_404(web):
+    target = web.get("/api/schedule", auth=AUTH).json()[0]
+    r = web.post("/api/cancel", auth=AUTH, json={"class_id": target["id"], "date": target["start"][:10]})
+    assert r.status_code == 404
+
+
+def test_cancel_requires_auth(web):
+    assert web.post("/api/cancel", json={"class_id": "1", "date": "2026-10-20"}).status_code == 401

@@ -127,6 +127,8 @@
       <form id="form" aria-labelledby="h-new">
         <h2 id="h-new">New rule</h2>
         <div class="field"><label for="f-day">Day</label><select id="f-day"></select></div>
+        <div class="field"><label for="f-repeat">Repeat</label>
+          <select id="f-repeat"><option value="weekly">Every week</option><option value="once">Only the next one</option></select></div>
         <div class="field"><label for="f-time">Class time</label><input id="f-time" type="time" value="18:00" required></div>
         <div class="field">
           <label for="f-name">Class name contains <span>(optional)</span></label>
@@ -159,7 +161,10 @@ const opens = s => new Date(s).toLocaleString([], { weekday: "short", hour: "2-d
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
-  if (!r.ok) throw new Error(path + " " + r.status);
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : path + " " + r.status);
+  }
   return r.json();
 }
 
@@ -189,11 +194,14 @@ function row(c, right) {
     <div class="grow"><b>${esc(c.name)}</b><small>${c.coach ? "with " + esc(c.coach) : ""}</small></div>${right}</div>`;
 }
 
+const cancelBtn = c => `<button class="btn" data-cancel="${esc(c.id)}"
+  aria-label="Cancel ${esc(c.name)} on ${esc(dateOf(c.start))} at ${esc(hm(c.start))}">Cancel</button>`;
+
 function renderMine(list) {
   const reg = list.filter(c => ["booked", "waitlisted", "registered"].includes(c.status));
   const up = list.filter(c => c.status === "auto");
   $("reg-count").textContent = reg.length + " upcoming";
-  $("reg").innerHTML = reg.map(c => row(c, badge(c.status))).join("") || '<div class="empty">Nothing booked yet.</div>';
+  $("reg").innerHTML = reg.map(c => row(c, badge(c.status) + cancelBtn(c))).join("") || '<div class="empty">Nothing booked yet.</div>';
   $("up").innerHTML = up.map(c => row(c, `<div class="opens">${clock}Opens ${esc(opens(c.opens))}</div>`)).join("")
     || '<div class="empty">No upcoming matches. Add a rule or enable one.</div>';
   $("att").innerHTML = state.att.map(a => `<div class="item">${badge(a.status)}
@@ -206,14 +214,19 @@ function renderSchedule(list) {
   const keys = [...new Set(list.map(c => c.start.slice(0, 10)))];
   $("chips").innerHTML = [["all", "All week"], ...keys.map(k => [k, shortDay(k + "T12:00") + " " + new Date(k + "T12:00").getDate()])]
     .map(([k, l]) => `<button class="chip" aria-pressed="${state.day === k}" data-day="${k}">${esc(l)}</button>`).join("");
-  const have = rule => state.rules.some(r => r.weekday === rule.weekday && r.time === rule.time && r.name_contains.toLowerCase() === rule.name.toLowerCase());
+  const have = rule => state.rules.some(r => !r.once_date && r.weekday === rule.weekday && r.time === rule.time && r.name_contains.toLowerCase() === rule.name.toLowerCase());
   let html = "";
   for (const k of keys) {
     if (state.day !== "all" && state.day !== k) continue;
     html += `<div class="band">${esc(dayOf(k + "T12:00"))}</div>`;
     for (const c of list.filter(x => x.start.slice(0, 10) === k)) {
       const has = have(c);
-      const act = c.registered ? "" : `<button class="btn acc" ${has ? "disabled" : ""} data-add="${esc(c.id)}"
+      const day = c.start.slice(0, 10);
+      const onceHas = state.rules.some(r => r.once_date === day && r.time === c.time && r.enabled);
+      const mine = c.registered || c.status === "waitlisted" || c.status === "registered";
+      const act = mine ? cancelBtn(c) : `<button class="btn" ${onceHas || c.matched ? "disabled" : ""} data-once="${esc(c.id)}"
+        aria-label="Book ${esc(c.name)} on ${esc(dateOf(c.start))} at ${esc(c.time)} once">${onceHas ? "Once added" : "Book once"}</button>
+        <button class="btn acc" ${has ? "disabled" : ""} data-add="${esc(c.id)}"
         aria-label="${has ? "Rule exists for" : "Always book"} ${esc(c.name)} on ${esc(DAYS[c.weekday])} at ${esc(c.time)}">${has ? "Rule added" : "Always book"}</button>`;
       html += `<div class="item"><div class="time">${esc(c.time)}</div>
         <div class="grow"><b>${esc(c.name)}</b><small>${c.coach ? "with " + esc(c.coach) + " · " : ""}registration opens ${esc(opens(c.opens))}</small></div>
@@ -225,11 +238,15 @@ function renderSchedule(list) {
 
 function renderRules() {
   const matches = r => state.sched.filter(c => c.weekday === r.weekday && c.time === r.time &&
+    (!r.once_date || c.start.slice(0, 10) === r.once_date) &&
     (!r.name_contains || c.name.toLowerCase().includes(r.name_contains.toLowerCase()))).length;
   $("rules").innerHTML = state.rules.map(r => {
-    const n = matches(r), label = DAYS[r.weekday] + " " + r.time;
+    const n = matches(r), label = DAYS[r.weekday] + " " + r.time + (r.once_date ? " once on " + r.once_date : "");
+    const title = r.once_date
+      ? `Once: ${esc(DAYS[r.weekday])} ${esc(dateOf(r.once_date + "T12:00"))} at ${esc(r.time)}`
+      : `Every ${DAYS[r.weekday]} at ${esc(r.time)}`;
     return `<div class="item">
-      <div class="grow ${r.enabled ? "" : "off"}"><b>Every ${DAYS[r.weekday]} at ${esc(r.time)}</b>
+      <div class="grow ${r.enabled ? "" : "off"}"><b>${title}</b>
         <small>${r.name_contains ? "Name contains “" + esc(r.name_contains) + "”" : "Any class"} · ${n ? "matches " + n + (n === 1 ? " class" : " classes") + " this week" : "no class this week"}</small></div>
       <button class="switch" role="switch" aria-checked="${!!r.enabled}" aria-label="${r.enabled ? "Disable" : "Enable"} rule ${label}" data-toggle="${r.id}"></button>
       <button class="btn del" aria-label="Delete rule ${label}" data-del="${r.id}">${trash}</button></div>`;
@@ -239,7 +256,8 @@ function renderRules() {
 
 function updatePreview() {
   const name = $("f-name").value.trim();
-  $("preview").textContent = `Every ${DAYS[+$("f-day").value]} at ${$("f-time").value || "--:--"}, ${name ? "classes containing “" + name + "”" : "any class"}.`;
+  const once = $("f-repeat").value === "once";
+  $("preview").textContent = `${once ? "Next " : "Every "}${DAYS[+$("f-day").value]} at ${$("f-time").value || "--:--"}, ${name ? "classes containing “" + name + "”" : "any class"}${once ? ", once" : ""}.`;
 }
 
 function render() {
@@ -260,14 +278,26 @@ async function load() {
 
 async function mutate(path, opts) { try { await api(path, opts); } catch (e) { $("form-err").textContent = "Something went wrong. Try again."; } await load(); }
 
+async function cancelClass(c) {
+  if (!c || !confirm(`Cancel ${c.name} on ${dayOf(c.start)} at ${hm(c.start)}?`)) return;
+  try { await api("/api/cancel", { method: "POST", body: JSON.stringify({ class_id: c.id, date: c.start.slice(0, 10) }) }); }
+  catch (e) { alert("Could not cancel: " + e.message); }
+  await load();
+}
+
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-day],[data-add],[data-toggle],[data-del]");
+  const t = e.target.closest("[data-tab],[data-day],[data-add],[data-once],[data-cancel],[data-toggle],[data-del]");
   if (!t) return;
   if (t.dataset.tab) { state.tab = t.dataset.tab; render(); }
   else if (t.dataset.day) { state.day = t.dataset.day; render(); }
   else if (t.dataset.add) {
     const c = state.sched.find(x => x.id == t.dataset.add);
     if (c) mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: c.weekday, time: c.time, name_contains: c.name }) });
+  } else if (t.dataset.once) {
+    const c = state.sched.find(x => x.id == t.dataset.once);
+    if (c) mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: c.weekday, time: c.time, name_contains: c.name, once: true, date: c.start.slice(0, 10) }) });
+  } else if (t.dataset.cancel) {
+    cancelClass(state.sched.find(x => x.id == t.dataset.cancel));
   } else if (t.dataset.toggle) {
     const r = state.rules.find(x => x.id == t.dataset.toggle);
     mutate("/api/rules/" + r.id, { method: "PATCH", body: JSON.stringify({ enabled: !r.enabled }) });
@@ -277,11 +307,11 @@ document.addEventListener("click", e => {
 });
 
 $("f-day").innerHTML = DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("");
-for (const id of ["f-day", "f-time", "f-name"]) $(id).addEventListener("input", updatePreview);
+for (const id of ["f-day", "f-repeat", "f-time", "f-name"]) $(id).addEventListener("input", updatePreview);
 $("form").addEventListener("submit", async e => {
   e.preventDefault();
   $("form-err").textContent = "";
-  await mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: +$("f-day").value, time: $("f-time").value, name_contains: $("f-name").value.trim() }) });
+  await mutate("/api/rules", { method: "POST", body: JSON.stringify({ weekday: +$("f-day").value, time: $("f-time").value, name_contains: $("f-name").value.trim(), once: $("f-repeat").value === "once" }) });
   $("f-name").value = ""; updatePreview();
 });
 

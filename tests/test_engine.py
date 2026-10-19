@@ -368,3 +368,46 @@ async def test_accepted_but_not_registered_is_reported(client, fake, fast, monke
     await run_tick(client)
     assert status_of(15) == "failed"
     assert any("UNCONFIRMED" in n for n in fast)
+
+
+async def test_once_rule_only_matches_its_own_date_then_switches_off(client, fake, fast, monkeypatch):
+    start = future_start()
+    nxt = start + timedelta(days=7)  # same weekday and time, a week later
+    fake.add(raw_class(70, start))
+    fake.add(raw_class(71, nxt))
+    db.add_rule(start.weekday(), f"{start:%H:%M}", "", f"{start:%Y-%m-%d}")
+    opens_in(monkeypatch, fake, 0.1)
+
+    assert await run_tick(client) == 1
+    assert fake.booked == [70]  # only the pinned date, not next week's class
+    assert db.list_rules()[0]["enabled"] == 0  # used up
+    assert await run_tick(client) == 0  # and it never books again
+
+
+async def test_once_rule_survives_a_dry_run(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(72, start))
+    db.add_rule(start.weekday(), f"{start:%H:%M}", "", f"{start:%Y-%m-%d}")
+    opens_in(monkeypatch, fake, 0.1)
+    monkeypatch.setattr(engine, "settings", replace(engine.settings, dry_run=True))
+    await run_tick(client)
+    assert db.list_rules()[0]["enabled"] == 1  # a rehearsal must not use up the real booking
+
+
+async def test_past_once_rule_is_switched_off_by_tick(client, fake, fast):
+    past = datetime.now(TZ) - timedelta(days=2)
+    db.add_rule(past.weekday(), "18:00", "", f"{past:%Y-%m-%d}")
+    db.add_rule(0, "07:00")  # an enabled weekly rule so tick does real work
+    await run_tick(client)
+    assert [r["enabled"] for r in db.list_rules() if r["once_date"]] == [0]
+
+
+async def test_engine_works_with_the_offline_mock_client(fast, monkeypatch):
+    from app.arbox_client import MockClient
+    mock = MockClient()
+    start = datetime.now(TZ) + timedelta(days=1)
+    cls = next(c for c in await mock.get_schedule(start.date(), start.date()))
+    db.add_rule(cls.start.weekday(), f"{cls.start:%H:%M}", "", f"{cls.start:%Y-%m-%d}")
+    await run_tick(mock)
+    assert status_of(cls.id) == "booked"
+    assert (await mock.get_class(cls.id, cls.start.date())).registered

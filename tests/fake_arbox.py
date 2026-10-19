@@ -125,4 +125,12 @@ class FakeArbox:
             c["user_booked"] = None
             return httpx.Response(200, json={"data": c})
 
+        if short == "/scheduleStandBy/delete":
+            for c in self.classes.values():
+                if c.get("user_in_standby") == body["schedule_stand_by_id"]:
+                    c["user_in_standby"] = None
+                    self.standby.remove(c["id"])
+                    return httpx.Response(200, json={"data": c})
+            return _err(425, "notOnWaitlist")
+
         return httpx.Response(404, json={"error": f"unhandled {short}"})

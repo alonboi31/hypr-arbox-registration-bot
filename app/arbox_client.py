@@ -32,6 +32,7 @@ class GymClass:
     full: bool = False
     registration_hours: int | None = None  # hours before start that booking opens
     schedule_user_id: int | None = None  # my booking's id (needed to cancel it)
+    stand_by_id: int | None = None       # my waitlist entry's id (needed to leave the waitlist)
 
 
 class LoginError(Exception):
@@ -70,6 +71,7 @@ def _parse_class(c: dict) -> GymClass:
         full=c.get("free", 1) == 0 or len(c.get("booked_users") or []) >= c.get("max_users", 10**9),
         registration_hours=c.get("enable_registration_time"),
         schedule_user_id=c.get("user_booked") or None,
+        stand_by_id=c.get("user_in_standby") or None,
     )
 
 
@@ -180,17 +182,20 @@ class ArboxClient:
         await self._insert("/scheduleUser/insert", class_id)
 
     async def cancel(self, c: GymClass):
-        """Cancel my booking (never a late cancel: Arbox may charge for those)."""
-        if not c.schedule_user_id:
+        """Cancel my booking, or leave the waitlist (never a late cancel: Arbox may charge for those)."""
+        if c.schedule_user_id:
+            r = await self._request("POST", "/scheduleUser/checkLateCancel", json={"schedule_id": int(c.id)})
+            if r.status_code != 200:
+                raise BookingError(f"cancel check failed: {r.status_code} {r.text[:200]}")
+            r = await self._request(
+                "POST",
+                "/scheduleUser/delete",
+                json={"schedule_user_id": c.schedule_user_id, "schedule_id": int(c.id), "late_cancel": False},
+            )
+        elif c.stand_by_id:
+            r = await self._request("POST", "/scheduleStandBy/delete", json={"schedule_stand_by_id": c.stand_by_id})
+        else:
             raise BookingError("not registered for this class, nothing to cancel")
-        r = await self._request("POST", "/scheduleUser/checkLateCancel", json={"schedule_id": int(c.id)})
-        if r.status_code != 200:
-            raise BookingError(f"cancel check failed: {r.status_code} {r.text[:200]}")
-        r = await self._request(
-            "POST",
-            "/scheduleUser/delete",
-            json={"schedule_user_id": c.schedule_user_id, "schedule_id": int(c.id), "late_cancel": False},
-        )
         if r.status_code != 200:
             raise BookingError(f"cancel failed: {r.status_code} {','.join(self._reasons(r)) or r.text[:200]}")
 
@@ -221,6 +226,9 @@ class MockClient:
     async def get_class(self, class_id: str, day: date):
         return next((c for c in await self.get_schedule(day, day) if c.id == class_id), None)
 
+    async def membership_id(self) -> int:
+        return 1
+
     async def book(self, class_id: str):
         if random.random() < 0.3:
             raise NotOpenYet("mock: not open yet")
@@ -228,6 +236,11 @@ class MockClient:
 
     async def join_waitlist(self, class_id: str):
         raise BookingError("mock: no waitlist")
+
+    async def cancel(self, c: GymClass):
+        if c.id not in self._booked:
+            raise BookingError("not registered for this class, nothing to cancel")
+        self._booked.discard(c.id)
 
 
 def make_client():

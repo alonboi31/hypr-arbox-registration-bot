@@ -10,12 +10,13 @@ CREATE TABLE IF NOT EXISTS rules (
     weekday INTEGER NOT NULL,          -- Mon=0 .. Sun=6
     time TEXT NOT NULL,                -- HH:MM local
     name_contains TEXT NOT NULL DEFAULT '',
-    enabled INTEGER NOT NULL DEFAULT 1
+    enabled INTEGER NOT NULL DEFAULT 1,
+    once_date TEXT                     -- YYYY-MM-DD: one-time rule for the class on that date
 );
 CREATE TABLE IF NOT EXISTS attempts (
     class_id TEXT PRIMARY KEY,
     class_label TEXT NOT NULL,
-    status TEXT NOT NULL,              -- pending | booked | waitlisted | failed
+    status TEXT NOT NULL,              -- pending | booked | waitlisted | failed | cancelled
     detail TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -37,6 +38,9 @@ def conn():
 def init():
     with conn() as c:
         c.executescript(SCHEMA)
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(rules)")}
+        if "once_date" not in cols:  # database created before one-time rules existed
+            c.execute("ALTER TABLE rules ADD COLUMN once_date TEXT")
 
 
 def list_rules():
@@ -44,12 +48,24 @@ def list_rules():
         return [dict(r) for r in c.execute("SELECT * FROM rules ORDER BY weekday, time")]
 
 
-def add_rule(weekday: int, time: str, name_contains: str = ""):
+def add_rule(weekday: int, time: str, name_contains: str = "", once_date: str | None = None):
     with conn() as c:
         c.execute(
-            "INSERT INTO rules (weekday, time, name_contains) VALUES (?,?,?)",
-            (weekday, time, name_contains.strip()),
+            "INSERT INTO rules (weekday, time, name_contains, once_date) VALUES (?,?,?,?)",
+            (weekday, time, name_contains.strip(), once_date),
         )
+
+
+def finish_once_rules(ids: list[int]):
+    """A one-time rule has done its job: switch it off (kept in the list as history)."""
+    with conn() as c:
+        c.executemany("UPDATE rules SET enabled=0 WHERE id=?", [(i,) for i in ids])
+
+
+def expire_once_rules(today: str):
+    """One-time rules whose date has passed without a match are switched off."""
+    with conn() as c:
+        c.execute("UPDATE rules SET enabled=0 WHERE once_date IS NOT NULL AND once_date < ?", (today,))
 
 
 def set_rule_enabled(rule_id: int, enabled: bool):

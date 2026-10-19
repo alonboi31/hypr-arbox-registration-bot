@@ -157,3 +157,13 @@ async def test_cancel_without_booking_raises(client, fake):
     c = await client.get_class("61", future_start().date())
     with pytest.raises(BookingError):
         await client.cancel(c)
+
+
+async def test_cancel_leaves_the_waitlist(client, fake):
+    fake.add(raw_class(62, future_start(), booked=20))
+    await client.join_waitlist("62")
+    c = await client.get_class("62", future_start().date())
+    assert c.in_standby and c.stand_by_id == 700062
+    await client.cancel(c)
+    assert (await client.get_class("62", future_start().date())).in_standby is False
+    assert fake.posts("/scheduleStandBy/delete")[0] == {"schedule_stand_by_id": 700062}

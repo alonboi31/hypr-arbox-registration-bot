@@ -34,6 +34,8 @@ def matches(rule: dict, c: GymClass) -> bool:
         return False
     if rule["time"] != f"{c.start:%H:%M}":
         return False
+    if rule.get("once_date") and rule["once_date"] != f"{c.start:%Y-%m-%d}":
+        return False
     needle = rule["name_contains"].lower()
     return not needle or needle in c.name.lower()
 
@@ -149,16 +151,28 @@ async def book_when_open(client, c: GymClass):
     """Never let a booking task die silently: record and report any crash."""
     try:
         await _book_when_open(client, c)
+        finish_once(c)
     except Exception as e:
         log.exception("booking task crashed")
         db.set_attempt(c.id, "failed", f"{type(e).__name__}: {e}")
         await notify(f"FAILED to book {label(c)}: {type(e).__name__}: {e}")
+        finish_once(c)
+
+
+def finish_once(c: GymClass):
+    """One-time rules are used up after their class was attempted (but not by a rehearsal)."""
+    if settings.dry_run:
+        return
+    done = [r["id"] for r in db.list_rules() if r.get("once_date") and r["enabled"] and matches(r, c)]
+    if done:
+        db.finish_once_rules(done)
 
 
 async def tick(client, tasks: set):
     now = datetime.now(TZ)
     if not settings.dry_run:
         db.release_dry_runs()
+    db.expire_once_rules(f"{now:%Y-%m-%d}")
     rules = [r for r in db.list_rules() if r["enabled"]]
     if not rules:
         return

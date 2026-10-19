@@ -34,3 +34,29 @@ def test_recent_attempts_limit():
         db.claim_attempt(f"x{i}", f"L{i}")
     assert len(db.recent_attempts(limit=3)) == 3
     assert len(db.recent_attempts()) == 5
+
+
+def test_once_rule_roundtrip_and_old_database_is_migrated(tmp_path, monkeypatch):
+    import sqlite3
+    from dataclasses import replace
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)  # a database made before one-time rules existed
+    old.execute("CREATE TABLE rules (id INTEGER PRIMARY KEY AUTOINCREMENT, weekday INTEGER NOT NULL, time TEXT NOT NULL,"
+                " name_contains TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1)")
+    old.execute("INSERT INTO rules (weekday, time) VALUES (1, '18:00')")
+    old.commit(); old.close()
+    monkeypatch.setattr(db, "settings", replace(db.settings, db_path=path))
+    db.init()
+    assert db.list_rules()[0]["once_date"] is None  # existing rule survives, as a weekly rule
+    db.add_rule(2, "07:00", "wod", "2026-10-21")
+    assert [r["once_date"] for r in db.list_rules()] == [None, "2026-10-21"]
+
+
+def test_expire_and_finish_once_rules():
+    db.add_rule(0, "18:00", "", "2026-10-01")
+    db.add_rule(0, "19:00", "", "2026-12-01")
+    db.add_rule(0, "20:00", "")  # weekly: never expires
+    db.expire_once_rules("2026-10-19")
+    assert [r["enabled"] for r in db.list_rules()] == [0, 1, 1]
+    db.finish_once_rules([db.list_rules()[1]["id"]])
+    assert [r["enabled"] for r in db.list_rules()] == [0, 0, 1]
