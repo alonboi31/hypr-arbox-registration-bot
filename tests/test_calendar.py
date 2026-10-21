@@ -125,3 +125,15 @@ def test_cancelling_via_api_sends_a_cancellation(cal, monkeypatch):
     r = web.post("/api/cancel", auth=("admin", "pw"), json={"class_id": target["id"], "date": target["start"][:10]})
     assert r.status_code == 200
     assert len(cal) == 1 and "METHOD:CANCEL" in cal[0].get_payload()[1].get_payload()
+
+
+def test_mailtest_command_reports_each_outcome(cal, monkeypatch, capsys):
+    from app import mailtest
+    monkeypatch.setattr(mailtest, "settings", replace(mailtest.settings, **CFG))
+    assert mailtest.main() == 0 and len(cal) == 1 and "test invite sent" in capsys.readouterr().out
+
+    monkeypatch.setattr(ci, "_send", lambda m: (_ for _ in ()).throw(OSError("535 bad password")))
+    assert mailtest.main() == 1 and "FAILED: OSError: 535 bad password" in capsys.readouterr().out
+
+    monkeypatch.setattr(mailtest, "settings", replace(mailtest.settings, **{**CFG, "smtp_password": ""}))
+    assert mailtest.main() == 1 and "SMTP_PASSWORD" in capsys.readouterr().out
