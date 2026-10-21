@@ -244,25 +244,46 @@ The container restarts by itself after crashes or server reboots
 
 ## Optional: calendar invites by email
 
-After every *confirmed* booking the bot emails you a calendar invite (`.ics`), and sends a
-cancellation if you cancel a class from the web page. Leave the `CALENDAR_TO` line empty to keep it off.
+The bot keeps your calendar in step with your bookings. It emails real calendar **invitations**
+(one event per class slot, for the next 14 days) and sends an updated invitation each time the
+status changes. The status is in the event title:
 
-For Gmail (a dedicated sending address is cleanest, but your own works):
-1. Turn on 2-Step Verification for the sending account, then create an **App Password**
-   (myaccount.google.com, Security, App passwords). It is a 16-character code.
+| Title | Meaning |
+|---|---|
+| `[Not open yet] YOGA` | One of your rules will book it when registration opens (made up to 14 days ahead) |
+| `[Booked] YOGA` | Booked and confirmed on Arbox |
+| `[Waitlist] YOGA` | The class was full, you are on the waitlist |
+| `[Failed] YOGA` | The bot could not book it, book it yourself |
+
+A cancellation is sent when you cancel from the web page, when you cancel in the Arbox app (seen on
+the next hourly check), when the class disappears, or when you switch off or delete a rule whose class
+was not booked yet. Classes you booked by hand get an event too. Leave `CALENDAR_TO` empty to keep
+all of this off. Nothing is sent while `DRY_RUN=1`.
+
+The first time you turn it on you get one invitation for every upcoming slot your rules cover
+(for example 3 weekly rules = about 6 emails). Accept them once; later status changes update the
+same event.
+
+For Gmail (use a separate sending account, not your calendar's address):
+1. Turn on 2-Step Verification for the sending account with a phone number or authenticator app
+   (a passkey alone does not offer App Passwords), then create an **App Password** at
+   myaccount.google.com/apppasswords. It is 16 characters.
 2. In `.env` on the server set:
 
 ```
-CALENDAR_TO=you@gmail.com        # where the invite goes (your calendar's address)
+CALENDAR_TO=you@gmail.com        # the calendar that receives the events
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=sender@gmail.com       # the account that sends
-SMTP_PASSWORD=xxxxxxxxxxxxxxxx   # the App Password, not your normal password
+SMTP_PASSWORD=xxxxxxxxxxxxxxxx   # the App Password, no spaces
 ```
 
-3. `docker compose up -d` to restart. Booking never fails because of an email problem; you
-   just get a "Calendar invite could not be sent" notification and a line in the logs.
+3. Test it without waiting for a booking, then restart:
 
-Notes: the cancellation email removes the event in Gmail, Apple Calendar and Outlook when you
-accepted the invite, but cancelling a class by hand in the Arbox app does not trigger it.
-Waitlist spots get no invite.
+```bash
+docker compose run --rm bot python -m app.mailtest     # sends one test invitation
+docker compose up -d
+```
+
+The test prints each step and the exact error if one fails. A mail problem never stops a booking;
+you get one "Calendar invites could not be sent" notification and the bot retries on the next check.

@@ -13,6 +13,14 @@ CREATE TABLE IF NOT EXISTS rules (
     enabled INTEGER NOT NULL DEFAULT 1,
     once_date TEXT                     -- YYYY-MM-DD: one-time rule for the class on that date
 );
+CREATE TABLE IF NOT EXISTS calendar_events (
+    uid TEXT PRIMARY KEY,              -- one event per class slot (date + time)
+    title TEXT NOT NULL,
+    start TEXT NOT NULL,               -- ISO, tz-aware
+    end TEXT NOT NULL,
+    status TEXT NOT NULL,              -- Not open yet | Booked | Waitlist | Failed | cancelled
+    seq INTEGER NOT NULL DEFAULT 0     -- iCalendar SEQUENCE of the last mail we sent
+);
 CREATE TABLE IF NOT EXISTS attempts (
     class_id TEXT PRIMARY KEY,
     class_label TEXT NOT NULL,
@@ -114,3 +122,24 @@ def release_dry_runs():
     """Forget rehearsal results so those classes can be booked for real."""
     with conn() as c:
         c.execute("DELETE FROM attempts WHERE status='dry-run'")
+
+
+def list_calendar_events():
+    with conn() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM calendar_events")]
+
+
+def save_calendar_event(uid: str, title: str, start: str, end: str, status: str, seq: int):
+    with conn() as c:
+        c.execute(
+            "INSERT INTO calendar_events (uid, title, start, end, status, seq) VALUES (?,?,?,?,?,?)"
+            " ON CONFLICT(uid) DO UPDATE SET title=excluded.title, start=excluded.start, end=excluded.end,"
+            " status=excluded.status, seq=excluded.seq",
+            (uid, title, start, end, status, seq),
+        )
+
+
+def prune_calendar_events(before_iso: str):
+    """Forget events that ended long ago."""
+    with conn() as c:
+        c.execute("DELETE FROM calendar_events WHERE end < ?", (before_iso,))

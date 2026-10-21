@@ -5,8 +5,8 @@
 from datetime import datetime, timedelta
 
 from . import calendar_invite
-from .arbox_client import GymClass
 from .config import settings
+from .calendar_invite import Event
 from .engine import TZ
 
 
@@ -17,7 +17,8 @@ def main() -> int:
         print("NOT CONFIGURED: these .env lines are empty:", ", ".join(missing))
         return 1
     start = (datetime.now(TZ) + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
-    c = GymClass("test", "Arbox bot test class", start, coach="Test", end=start + timedelta(hours=1))
+    ev = Event("arbox-mailtest@arbox-bot", "[Booked] Arbox bot test class", start, start + timedelta(hours=1),
+               "If you can see this invitation, calendar emails work.")
     print(f"Sending from {settings.smtp_user} via {settings.smtp_host}:{settings.smtp_port} to {settings.calendar_to} ...")
     stage = ["start"]
 
@@ -26,7 +27,7 @@ def main() -> int:
         print(f"  ... {name}")
 
     try:
-        calendar_invite._send(calendar_invite.build_message(c), on_stage)
+        calendar_invite._send(calendar_invite.build_message(ev), on_stage)
     except Exception as e:  # show the real reason and where it happened, not a traceback
         print(f"FAILED while {stage[0]}: {type(e).__name__}: {e}")
         return 1

@@ -5,8 +5,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from . import db
-from . import calendar_invite
+from . import calendar_invite, calendar_sync, db
 from .arbox_client import BookingError, GymClass, NotOpenYet
 from .config import settings
 from .opening import opening_time
@@ -126,7 +125,6 @@ async def _book_when_open(client, c: GymClass):
             elif await verify(client, c):
                 db.set_attempt(c.id, "booked")
                 await notify(f"Booked (confirmed on Arbox): {label(c)}")
-                await invite(c)
             else:
                 db.set_attempt(c.id, "failed", "booking accepted but class not registered on Arbox")
                 await notify(f"UNCONFIRMED booking, check the app: {label(c)}")
@@ -154,16 +152,13 @@ async def book_when_open(client, c: GymClass):
     try:
         await _book_when_open(client, c)
         finish_once(c)
+        poke()
     except Exception as e:
         log.exception("booking task crashed")
         db.set_attempt(c.id, "failed", f"{type(e).__name__}: {e}")
         await notify(f"FAILED to book {label(c)}: {type(e).__name__}: {e}")
         finish_once(c)
-
-
-async def invite(c: GymClass, method: str = "REQUEST"):
-    if calendar_invite.enabled() and not await calendar_invite.send(c, method):
-        await notify(f"Calendar invite could not be sent for {label(c)}")
+        poke()
 
 
 def finish_once(c: GymClass):
@@ -181,7 +176,7 @@ async def tick(client, tasks: set):
         db.release_dry_runs()
     db.expire_once_rules(f"{now:%Y-%m-%d}")
     rules = [r for r in db.list_rules() if r["enabled"]]
-    if not rules:
+    if not rules and not calendar_invite.enabled():
         return
     classes = await client.get_schedule(
         now.date(), (now + timedelta(days=settings.lookahead_days)).date()
@@ -199,6 +194,10 @@ async def tick(client, tasks: set):
         t = asyncio.create_task(book_when_open(client, c))
         tasks.add(t)
         t.add_done_callback(tasks.discard)
+    try:
+        await calendar_sync.sync(classes, rules, matches, now, notify)
+    except Exception:
+        log.exception("calendar sync failed")
 
 
 _wake: asyncio.Event | None = None
