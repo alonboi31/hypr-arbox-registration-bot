@@ -65,10 +65,21 @@ def build_message(c: GymClass, method: str = "REQUEST") -> EmailMessage:
     return msg
 
 
-def _send(msg: EmailMessage):
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as s:
-        s.starttls()
+def _send(msg: EmailMessage, on_stage=None):
+    """Port 465 = SSL from the start; anything else (587) = plain connect then STARTTLS."""
+    say = on_stage or (lambda stage: None)
+    say("connecting")
+    if settings.smtp_port == 465:
+        s = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=20)
+    else:
+        s = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+    with s:
+        if settings.smtp_port != 465:
+            say("starting TLS")
+            s.starttls()
+        say("logging in")
         s.login(settings.smtp_user, settings.smtp_password)
+        say("sending")
         s.send_message(msg)
 
 

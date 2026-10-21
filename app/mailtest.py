@@ -19,10 +19,16 @@ def main() -> int:
     start = (datetime.now(TZ) + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
     c = GymClass("test", "Arbox bot test class", start, coach="Test", end=start + timedelta(hours=1))
     print(f"Sending from {settings.smtp_user} via {settings.smtp_host}:{settings.smtp_port} to {settings.calendar_to} ...")
+    stage = ["start"]
+
+    def on_stage(name):
+        stage[0] = name
+        print(f"  ... {name}")
+
     try:
-        calendar_invite._send(calendar_invite.build_message(c))
-    except Exception as e:  # show the real reason, not a traceback
-        print(f"FAILED: {type(e).__name__}: {e}")
+        calendar_invite._send(calendar_invite.build_message(c), on_stage)
+    except Exception as e:  # show the real reason and where it happened, not a traceback
+        print(f"FAILED while {stage[0]}: {type(e).__name__}: {e}")
         return 1
     print("OK: test invite sent. Check the inbox (and spam) of", settings.calendar_to)
     return 0

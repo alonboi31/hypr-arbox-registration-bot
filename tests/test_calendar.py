@@ -20,7 +20,7 @@ def cal(monkeypatch):
     for mod in (ci, engine):
         monkeypatch.setattr(mod, "settings", replace(mod.settings, **CFG))
     sent = []
-    monkeypatch.setattr(ci, "_send", lambda msg: sent.append(msg))
+    monkeypatch.setattr(ci, "_send", lambda msg, on_stage=None: sent.append(msg))
     return sent
 
 
@@ -81,7 +81,7 @@ async def test_send_uses_smtp_with_login(cal, monkeypatch):
 async def test_disabled_or_failing_smtp_never_raises(monkeypatch):
     assert await ci.send(make_class()) is False  # not configured
     monkeypatch.setattr(ci, "settings", replace(ci.settings, **CFG))
-    monkeypatch.setattr(ci, "_send", lambda m: (_ for _ in ()).throw(OSError("smtp down")))
+    monkeypatch.setattr(ci, "_send", lambda m, on_stage=None: (_ for _ in ()).throw(OSError("smtp down")))
     assert await ci.send(make_class()) is False
 
 
@@ -109,7 +109,7 @@ async def test_invite_failure_does_not_break_the_booking(client, fake, fast, cal
     fake.add(raw_class(82, start))
     db.add_rule(start.weekday(), f"{start:%H:%M}", "")
     opens_in(monkeypatch, fake, 0.1)
-    monkeypatch.setattr(ci, "_send", lambda m: (_ for _ in ()).throw(OSError("smtp down")))
+    monkeypatch.setattr(ci, "_send", lambda m, on_stage=None: (_ for _ in ()).throw(OSError("smtp down")))
     await run_tick(client)
     assert fake.booked == [82] and db.get_attempt("82")["status"] == "booked"
     assert any("Calendar invite could not be sent" in n for n in fast)
@@ -132,8 +132,46 @@ def test_mailtest_command_reports_each_outcome(cal, monkeypatch, capsys):
     monkeypatch.setattr(mailtest, "settings", replace(mailtest.settings, **CFG))
     assert mailtest.main() == 0 and len(cal) == 1 and "test invite sent" in capsys.readouterr().out
 
-    monkeypatch.setattr(ci, "_send", lambda m: (_ for _ in ()).throw(OSError("535 bad password")))
-    assert mailtest.main() == 1 and "FAILED: OSError: 535 bad password" in capsys.readouterr().out
+    monkeypatch.setattr(ci, "_send", lambda m, on_stage=None: (_ for _ in ()).throw(OSError("535 bad password")))
+    assert mailtest.main() == 1 and "OSError: 535 bad password" in capsys.readouterr().out
 
     monkeypatch.setattr(mailtest, "settings", replace(mailtest.settings, **{**CFG, "smtp_password": ""}))
     assert mailtest.main() == 1 and "SMTP_PASSWORD" in capsys.readouterr().out
+
+
+def test_send_reports_stage_and_uses_ssl_on_port_465(cal, monkeypatch):
+    import smtplib
+
+    used = []
+
+    class Boom:
+        def __init__(self, *a, **k): used.append(type(self).__name__)
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def login(self, *a): raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+        def starttls(self): pass
+
+    class BoomSSL(Boom):
+        pass
+
+    monkeypatch.undo()
+    monkeypatch.setattr(ci, "settings", replace(ci.settings, **{**CFG, "smtp_port": 465}))
+    monkeypatch.setattr(smtplib, "SMTP_SSL", BoomSSL)
+    monkeypatch.setattr(smtplib, "SMTP", Boom)
+    stages = []
+    with pytest.raises(smtplib.SMTPServerDisconnected):
+        ci._send(ci.build_message(make_class()), stages.append)
+    assert used == ["BoomSSL"] and stages == ["connecting", "logging in"]  # no STARTTLS step on 465
+
+
+def test_mailtest_says_which_stage_failed(cal, monkeypatch, capsys):
+    from app import mailtest
+    monkeypatch.setattr(mailtest, "settings", replace(mailtest.settings, **CFG))
+
+    def failing(msg, on_stage=None):
+        on_stage("connecting"); on_stage("logging in")
+        raise OSError("closed")
+
+    monkeypatch.setattr(ci, "_send", failing)
+    assert mailtest.main() == 1
+    assert "FAILED while logging in: OSError: closed" in capsys.readouterr().out
