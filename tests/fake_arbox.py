@@ -43,6 +43,7 @@ class FakeArbox:
         self.logins = 0
         self.open_at: datetime | None = None            # None = every class is open
         self.reject_token_once = False                  # simulate an expired token
+        self.rate_limit_next = 0                        # next N booking calls return HTTP 429
         self.fail_next = 0                              # next N booking calls return HTTP 500
         self.memberships = [
             {"id": MEMBERSHIP_SESSION, "active": 1, "mt_type": "session"},
@@ -94,6 +95,9 @@ class FakeArbox:
             return httpx.Response(200, json={"data": day})
 
         if short in ("/scheduleUser/insert", "/scheduleStandBy/insert"):
+            if self.rate_limit_next:
+                self.rate_limit_next -= 1
+                return httpx.Response(429, text="Too Many Requests", headers={"server": "cloudflare"})
             if self.fail_next:
                 self.fail_next -= 1
                 return httpx.Response(500, text="boom")

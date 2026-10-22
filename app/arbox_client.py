@@ -57,6 +57,14 @@ class NotOpenYet(Exception):
     """Registration has not opened - retry."""
 
 
+class RateLimited(NotOpenYet):
+    """HTTP 429: Arbox (or Cloudflare) says we are sending too much. Retry, but slow down."""
+
+    def __init__(self, msg: str, retry_after: float | None = None):
+        super().__init__(msg)
+        self.retry_after = retry_after
+
+
 def _parse_class(c: dict) -> GymClass:
     dt = c["date_time"]
     start = datetime.fromisoformat(dt["date"]).replace(tzinfo=ZoneInfo(dt.get("timezone") or settings.timezone))
@@ -180,7 +188,16 @@ class ArboxClient:
         reasons = self._reasons(r)
         if r.status_code == 425 and reasons and set(reasons) <= NOT_OPEN_REASONS:
             raise NotOpenYet(",".join(reasons))
-        if r.status_code >= 500 or r.status_code == 429:
+        if r.status_code == 429:
+            try:
+                retry_after = float(r.headers.get("retry-after", ""))
+            except ValueError:
+                retry_after = None
+            log.warning("Arbox rate limit (429) on %s: retry-after=%s server=%s body=%r",
+                        path, retry_after, r.headers.get("server"), r.text[:150])
+            raise RateLimited("server 429", retry_after)
+        if r.status_code >= 500:
+            log.warning("Arbox server error %s on %s: body=%r", r.status_code, path, r.text[:150])
             raise NotOpenYet(f"server {r.status_code}")  # transient -> retry
         raise BookingError(f"{r.status_code} {','.join(reasons) or r.text[:200]}")
 

@@ -411,3 +411,48 @@ async def test_engine_works_with_the_offline_mock_client(fast, monkeypatch):
     await run_tick(mock)
     assert status_of(cls.id) == "booked"
     assert (await mock.get_class(cls.id, cls.start.date())).registered
+
+
+async def test_rate_limit_429_makes_the_bot_back_off_instead_of_hammering(client, fake, fast, monkeypatch):
+    import time
+    start = future_start()
+    fake.add(raw_class(95, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.0)
+    fake.rate_limit_next = 3
+    monkeypatch.setattr(engine, "RATE_BACKOFF", 0.05)  # waits 0.05, 0.1, 0.2
+    monkeypatch.setattr(engine, "RETRY_WINDOW", timedelta(seconds=5))
+    t0 = time.monotonic()
+    await run_tick(client)
+    elapsed = time.monotonic() - t0
+    assert fake.booked == [95]  # got in once the limit cleared
+    assert len(fake.posts("/scheduleUser/insert")) == 4
+    assert elapsed >= 0.3  # it waited between hits; at the 0.02s retry pace this would take ~0.06s
+
+
+async def test_retry_after_header_is_respected(client, fake, fast, monkeypatch):
+    from app.arbox_client import RateLimited
+    sleeps = []
+    real_sleep = asyncio.sleep
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+        await real_sleep(0)
+
+    start = future_start()
+    fake.add(raw_class(96, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.0)
+    calls = {"n": 0}
+    real_book = client.book
+
+    async def book(cid):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RateLimited("server 429", 7.0)
+        await real_book(cid)
+
+    monkeypatch.setattr(client, "book", book)
+    monkeypatch.setattr(engine.asyncio, "sleep", fake_sleep)
+    await run_tick(client)
+    assert 7.0 in sleeps and fake.booked == [96]

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from . import calendar_invite, calendar_sync, db
-from .arbox_client import BookingError, GymClass, NotOpenYet
+from .arbox_client import BookingError, GymClass, NotOpenYet, RateLimited
 from .config import settings
 from .opening import opening_time
 
@@ -20,6 +20,8 @@ LEAD = timedelta(seconds=0.15)       # first attempt this much before opening (~
 RETRY_WINDOW = timedelta(seconds=120)  # keep retrying this long after opening
 RETRY_EVERY = 0.25                   # fast phase: first FAST_PHASE seconds after the first attempt
 FAST_PHASE = 3.0
+RATE_BACKOFF = 2.0                   # after HTTP 429: wait 2, 4, 8, 16, 20, 20 ... seconds (or Retry-After)
+RATE_BACKOFF_MAX = 20.0
 
 
 def retry_delay(elapsed: float) -> float:
@@ -116,6 +118,7 @@ async def _book_when_open(client, c: GymClass):
     started = datetime.now(TZ)
     deadline = started + RETRY_WINDOW
     last = ""
+    rate_hits = 0
     while datetime.now(TZ) < deadline:
         try:
             await client.book(c.id)
@@ -142,7 +145,12 @@ async def _book_when_open(client, c: GymClass):
             return
         except Exception as e:  # NotOpenYet, network blips -> retry, backing off
             last = str(e)
-            await asyncio.sleep(retry_delay((datetime.now(TZ) - started).total_seconds()))
+            delay = retry_delay((datetime.now(TZ) - started).total_seconds())
+            if isinstance(e, RateLimited):  # being told to slow down: never hammer
+                rate_hits += 1
+                delay = max(delay, e.retry_after or 0, min(RATE_BACKOFF * 2 ** (rate_hits - 1), RATE_BACKOFF_MAX))
+                log.warning("rate limited booking %s (hit %d), waiting %.1fs", label(c), rate_hits, delay)
+            await asyncio.sleep(delay)
     db.set_attempt(c.id, "failed", last)
     await notify(f"FAILED to book {label(c)}: {last}")
 
