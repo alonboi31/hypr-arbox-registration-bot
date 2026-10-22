@@ -43,6 +43,7 @@ class FakeArbox:
         self.logins = 0
         self.open_at: datetime | None = None            # None = every class is open
         self.reject_token_once = False                  # simulate an expired token
+        self.restricted: set[str] = set()               # categories refused with categoryFrequencyRestricts
         self.rate_limit_next = 0                        # next N booking calls return HTTP 429
         self.fail_next = 0                              # next N booking calls return HTTP 500
         self.memberships = [
@@ -104,6 +105,8 @@ class FakeArbox:
             assert body["membership_user_id"] in (MEMBERSHIP_PLAN, MEMBERSHIP_SESSION)
             assert body["extras"] == {"spot": None, "invited_by": None}
             c = self.classes[body["schedule_id"]]
+            if c["box_categories"]["name"] in self.restricted:
+                return _err(425, "categoryFrequencyRestricts")
             if self.open_at is not None and datetime.now(TZ) < self.open_at:
                 return _err(425, "registerScheduleDisabled")
             if short.endswith("/scheduleUser/insert"):
