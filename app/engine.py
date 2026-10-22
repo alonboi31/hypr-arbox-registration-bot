@@ -22,6 +22,7 @@ RETRY_EVERY = 0.25                   # fast phase: first FAST_PHASE seconds afte
 FAST_PHASE = 3.0
 RATE_BACKOFF = 2.0                   # after HTTP 429: wait 2, 4, 8, 16, 20, 20 ... seconds (or Retry-After)
 RATE_BACKOFF_MAX = 20.0
+RATE_WINDOW = timedelta(minutes=10)  # while Arbox keeps answering 429, keep (slowly) trying this long
 
 
 def retry_delay(elapsed: float) -> float:
@@ -95,6 +96,19 @@ async def _sleep_until(t: datetime):
         await asyncio.sleep(delay)
 
 
+async def _already_in(client, c: GymClass) -> bool:
+    """While rate limited: check whether an earlier request actually went through."""
+    try:
+        fresh = await client.get_class(c.id, c.start.date())
+    except Exception:
+        return False
+    if fresh and fresh.registered:
+        db.set_attempt(c.id, "booked")
+        await notify(f"Booked (confirmed on Arbox): {label(c)}")
+        return True
+    return False
+
+
 async def _book_when_open(client, c: GymClass):
     opens = opening_time(c.start, c.registration_hours)
     await _sleep_until(opens - PREFLIGHT)
@@ -148,6 +162,9 @@ async def _book_when_open(client, c: GymClass):
             delay = retry_delay((datetime.now(TZ) - started).total_seconds())
             if isinstance(e, RateLimited):  # being told to slow down: never hammer
                 rate_hits += 1
+                deadline = max(deadline, started + RATE_WINDOW)
+                if rate_hits % 3 == 0 and await _already_in(client, c):
+                    return
                 delay = max(delay, e.retry_after or 0, min(RATE_BACKOFF * 2 ** (rate_hits - 1), RATE_BACKOFF_MAX))
                 log.warning("rate limited booking %s (hit %d), waiting %.1fs", label(c), rate_hits, delay)
             await asyncio.sleep(delay)

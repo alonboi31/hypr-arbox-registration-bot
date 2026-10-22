@@ -456,3 +456,32 @@ async def test_retry_after_header_is_respected(client, fake, fast, monkeypatch):
     monkeypatch.setattr(engine.asyncio, "sleep", fake_sleep)
     await run_tick(client)
     assert 7.0 in sleeps and fake.booked == [96]
+
+
+async def test_keeps_trying_past_the_normal_window_while_rate_limited(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(97, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.0)
+    fake.rate_limit_next = 6
+    monkeypatch.setattr(engine, "RETRY_WINDOW", timedelta(seconds=0.2))   # the normal window is long over...
+    monkeypatch.setattr(engine, "RATE_WINDOW", timedelta(seconds=3))      # ...but 429s extend it
+    monkeypatch.setattr(engine, "RATE_BACKOFF", 0.05)
+    monkeypatch.setattr(engine, "RATE_BACKOFF_MAX", 0.1)
+    await run_tick(client)
+    assert fake.booked == [97] and len(fake.posts("/scheduleUser/insert")) == 7
+
+
+async def test_gives_up_after_the_rate_limit_window_and_says_so(client, fake, fast, monkeypatch):
+    start = future_start()
+    fake.add(raw_class(98, start))
+    rule_for(start)
+    opens_in(monkeypatch, fake, 0.0)
+    fake.rate_limit_next = 10_000
+    monkeypatch.setattr(engine, "RETRY_WINDOW", timedelta(seconds=0.1))
+    monkeypatch.setattr(engine, "RATE_WINDOW", timedelta(seconds=0.5))
+    monkeypatch.setattr(engine, "RATE_BACKOFF", 0.05)
+    monkeypatch.setattr(engine, "RATE_BACKOFF_MAX", 0.1)
+    await run_tick(client)
+    assert fake.booked == [] and status_of(98) == "failed"
+    assert any("FAILED to book" in n and "429" in n for n in fast)
